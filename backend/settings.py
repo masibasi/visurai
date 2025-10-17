@@ -30,6 +30,14 @@ class Settings(BaseModel):
     # Performance
     max_concurrency: int = Field(default=4)
 
+    # Visual style guide injected into every scene prompt for consistency
+    style_guide: str = Field(
+        default=(
+            "Friendly illustrated style; kid- and dyslexia-friendly; gentle colors; clear primary subject; "
+            "soft lighting; clean composition; avoid text overlays and watermarks; maintain consistent characters/props across scenes."
+        )
+    )
+
 
 def _parse_list(value: Optional[str]) -> List[str]:
     if not value:
@@ -53,6 +61,11 @@ def get_settings() -> Settings:
         replicate_model=os.getenv("REPLICATE_MODEL", "black-forest-labs/flux-1.1-pro"),
         replicate_timeout_seconds=int(os.getenv("REPLICATE_TIMEOUT_SECONDS", "300")),
         max_concurrency=int(os.getenv("MAX_CONCURRENCY", "4")),
+        style_guide=os.getenv("STYLE_GUIDE", None)
+        or (
+            "Friendly illustrated style; kid- and dyslexia-friendly; gentle colors; clear primary subject; "
+            "soft lighting; clean composition; avoid text overlays and watermarks; maintain consistent characters/props across scenes."
+        ),
     )
 
     

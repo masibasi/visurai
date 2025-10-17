@@ -1,4 +1,5 @@
 """Pydantic request/response models for the Seequence backend."""
+
 from __future__ import annotations
 
 from typing import List, Optional

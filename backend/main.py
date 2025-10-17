@@ -96,11 +96,18 @@ def generate_image(req: GenerateImageRequest) -> GenerateImageResponse:
 async def generate_visuals(req: GenerateVisualsRequest) -> GenerateVisualsResponse:
     """Full pipeline: segment -> prompt -> parallel image generation."""
     raw_scenes = chains.segment_text_into_scenes(req.text, req.max_scenes)
+    # One-shot global context summary to enforce consistency across scene prompts
+    try:
+        global_summary = chains.summarize_global_context(req.text)
+    except Exception:
+        global_summary = ""
 
     # Generate prompts sequentially (fast), then images in parallel (slower/io-bound)
     scenes_with_prompts: List[Scene] = []
     for sdict in raw_scenes:
-        prompt = chains.generate_visual_prompt(sdict["scene_summary"])
+        prompt = chains.generate_visual_prompt(
+            sdict["scene_summary"], global_summary=global_summary
+        )
         scenes_with_prompts.append(
             Scene(
                 scene_id=sdict["scene_id"],

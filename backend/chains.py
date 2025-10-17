@@ -2,9 +2,10 @@
 
 Currently uses OpenAI GPT-4o via langchain-openai based on env settings.
 """
+
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -61,7 +62,9 @@ def segment_text_into_scenes(text: str, max_scenes: int = 8) -> List[dict]:
     scenes: List[dict] = []
     for i, item in enumerate(data, start=1):
         summary = item.get("scene_summary") or item.get("summary") or str(item)
-        indices = item.get("source_sentence_indices") or item.get("source_indices") or []
+        indices = (
+            item.get("source_sentence_indices") or item.get("source_indices") or []
+        )
         sentences = item.get("source_sentences") or item.get("sources") or []
         scenes.append(
             {
@@ -74,20 +77,60 @@ def segment_text_into_scenes(text: str, max_scenes: int = 8) -> List[dict]:
     return scenes[:max_scenes]
 
 
-def generate_visual_prompt(scene_summary: str) -> str:
-    """Turn a scene summary into a detailed, style-consistent visual prompt for Flux."""
+def summarize_global_context(text: str, max_chars: int = 400) -> str:
+    """Summarize the entire input into a short global context (1–2 sentences)."""
     llm = _get_llm()
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
-                "You are a prompt engineer creating concise, concrete prompts for an illustration model (Flux 1.1 Pro). Use a cohesive friendly illustrative style, gentle colors, clear subjects, and avoid text in images.",
+                "You write a single concise summary capturing overall narrative, recurring characters, setting, and tone for consistent visuals.",
             ),
             (
                 "user",
-                "Create a single-sentence image prompt for this scene, 30-50 words, present tense.\nScene: {scene}\nConstraints: kid-friendly, dyslexia-friendly visuals, consistent character tone; avoid text overlays; include composition cues.",
+                "Summarize the following text into 1-2 sentences (hard limit {max_chars} characters) for global visual context.\n\n{text}",
             ),
         ]
     )
     chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"scene": scene_summary}).strip()
+    out = chain.invoke({"text": text, "max_chars": max_chars}).strip()
+    if len(out) > max_chars:
+        out = out[: max_chars - 1] + "…"
+    return out
+
+
+def generate_visual_prompt(
+    scene_summary: str,
+    global_summary: Optional[str] = None,
+    style_guide: Optional[str] = None,
+) -> str:
+    """Turn a scene summary into a detailed, style-consistent visual prompt for Flux, with global context and style guide."""
+    llm = _get_llm()
+    # Pull default style guide from settings if not provided
+    s = get_settings()
+    effective_style = style_guide or s.style_guide
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "You are a prompt engineer creating concise, concrete prompts for an illustration model (Flux 1.1 Pro). Avoid text in images and watermarks.",
+            ),
+            (
+                "user",
+                "Create a single-sentence image prompt for this scene (30-50 words, present tense).\n"
+                "Global context (for consistency across scenes): {global_context}\n"
+                "Style guide: {style_guide}\n"
+                "Scene: {scene}\n"
+                "Constraints: kid-friendly, dyslexia-friendly visuals, consistent characters/props; avoid text overlays; include composition cues.",
+            ),
+        ]
+    )
+    chain = prompt | llm | StrOutputParser()
+    return chain.invoke(
+        {
+            "scene": scene_summary,
+            "global_context": global_summary or "",
+            "style_guide": effective_style or "",
+        }
+    ).strip()
