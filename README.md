@@ -1,127 +1,221 @@
-# 🧩 VisurAI
-> *Transform text into understanding — one image at a time.*
+# Visurai — Visual Learning Copilot
 
-### 🏆 Built at the **Good Vibes Only AI/ML Buildathon @ USC (2025)**
+> Turn text into a narrated visual story: scenes, images, and audio — in seconds.
 
----
-
-## 🎯 Overview
-
-**VisurAI** is an AI-powered web application that helps dyslexic and visual learners comprehend written material through **visual storytelling**.
-
-Instead of reading long passages, users can paste text and instantly receive a sequence of AI-generated images that *illustrate the story or concept*.  
-Each image is contextually linked — creating an **“image book”** that teaches through imagination rather than words.
+🏆 Built at the Good Vibes Only AI/ML Buildathon @ USC (2025)
 
 ---
 
-## ✨ Key Features
+## Overview
 
-- 🧠 **LLM-powered comprehension** — understands full context and breaks text into semantic “story beats”
-- 🎨 **AI image generation** — visualizes each sentence or idea with consistent style and characters
-- ⚡ **Instant visual notebook** — all images generated once and displayed seamlessly (no per-line lag)
-- ♿ **Accessibility-first design** — supports dyslexic, ADHD, and ESL learners
-- 🥽 **Future-ready** — concept extension to **Apple Vision Pro** for immersive learning
+Visurai helps dyslexic and visual learners comprehend material by converting text into a sequence of AI-generated images with optional narration.
 
----
+Paste any text and get:
 
-## 🧰 Tech Stack
-
-| Layer | Technology |
-|--------|-------------|
-| **Frontend** | [Lovable](https://lovable.ai) (Context Engineering UI Framework) |
-| **Backend** | FastAPI + LangChain |
-| **LLM** | GPT-4o / Claude 3 (semantic segmentation + prompt generation) |
-| **Image Generation** | Flux / NanoBanana / Hugging Face SDXL |
-| **Orchestration** | LangChain (→ later A2A agent integration) |
-| **Version Control** | GitHub (monorepo with FE + BE) |
+- A title and segmented scenes that preserve key facts and names
+- High-quality images per scene (Flux via Replicate or OpenAI gpt-image-1)
+- Per‑scene TTS audio and a single merged audio track with a timeline
+- Optional OCR to start from an image instead of text
 
 ---
 
-## 🏗 Architecture
+## Features
+
+- Context‑aware scene segmentation and detail‑preserving visual prompts (GPT‑4o)
+- Image generation providers:
+  - Replicate: Flux 1.1 Pro (default), 16:9 targeting with AR/size fallbacks
+  - OpenAI: gpt‑image‑1 with supported sizes and automatic fallback
+- Narration:
+  - Per‑scene TTS (OpenAI gpt‑4o‑mini‑tts)
+  - Single merged MP3 with timestamps (ffmpeg concat demuxer)
+- Live progress via SSE (/generate_visuals_events)
+- OCR routes: generate from image URL or upload
+- Absolute asset URLs using PUBLIC_BASE_URL (e.g., ngrok) for frontend access
+
+---
+
+## Architecture
 
 ```
-User Input (Text)
-↓
-LLM Context Parser
-(Splits text into 5–10 semantic scenes)
-↓
-Prompt Generator
-(Describes each scene visually)
-↓
-Image Model (Flux / SDXL)
-(Creates visual frames)
-↓
-Lovable Frontend
-(Displays “visual notebook”)
+Text / Image → OCR (optional)
+				↓
+Scene segmentation (GPT‑4o)
+				↓
+Detail‑preserving visual prompts
+				↓
+Image generation (Replicate Flux or OpenAI gpt‑image‑1)
+				↓
+TTS per scene → ffmpeg concat → single audio + timeline
+				↓
+Frontend (React) consumes JSON, images, audio, and SSE
 ```
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
-VisurAI/
-├── frontend/       # Lovable / React frontend by Josh
-├── backend/        # FastAPI + LangChain orchestration by Ji Min
-├── docs/           # Pitch deck, screenshots, demo video
-├── .gitignore
-└── README.md
+good-vibes-only/
+├── backend/
+│   ├── main.py            # FastAPI app (SSE, OCR, TTS, visuals)
+│   ├── image_gen.py       # Image provider adapters (Replicate/OpenAI)
+│   ├── tts.py             # OpenAI TTS + ffmpeg merge
+│   ├── settings.py        # Pydantic settings + .env loader
+│   ├── pyproject.toml     # Backend deps (use uv/pip)
+│   └── uv.lock
+└── frontend/              # React app that calls the backend
 ```
 
 ---
 
-## 🚀 Getting Started
+## Prerequisites
 
-### 1️⃣ Clone & Setup
+- Python 3.10+ (tested up to 3.13)
+- ffmpeg installed (required for merged audio)
+  - macOS: `brew install ffmpeg`
+- Provider keys as needed:
+  - Replicate: `REPLICATE_API_TOKEN`
+  - OpenAI: `OPENAI_API_KEY`
+
+---
+
+## Backend — Quick Start (run from repo root)
+
+From the repo root:
+
 ```bash
-git clone https://github.com/masibasi/VisurAI.git
-cd VisurAI/backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+# 1) Install deps (using uv)
+uv sync && cd ..
+
+# 2) Create backend/.env with your keys and config (see below)
+
+# 3) Run the API from the repo root
+uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 2️⃣ Run Backend
+### backend/.env (example)
+
+```
+# LLM
+OPENAI_API_KEY=sk-...
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o-mini
+
+# Image provider (replicate | openai)
+IMAGE_PROVIDER=replicate
+REPLICATE_API_TOKEN=r8_...
+REPLICATE_MODEL=black-forest-labs/flux-1.1-pro
+REPLICATE_ASPECT_RATIO=16:9
+
+# OpenAI Images (if IMAGE_PROVIDER=openai)
+OPENAI_IMAGE_MODEL=gpt-image-1
+OPENAI_IMAGE_SIZE=1536x1024   # allowed: 1024x1024, 1024x1536, 1536x1024, auto
+
+# TTS
+TTS_PROVIDER=openai
+TTS_MODEL=gpt-4o-mini-tts
+TTS_VOICE=alloy
+TTS_OUTPUT_DIR=/tmp/seequence_audio
+
+# Absolute URLs for frontend (ngrok/domain)
+PUBLIC_BASE_URL=https://<your-ngrok-subdomain>.ngrok-free.dev
+
+# CORS (optional – include your frontend origin when using credentials)
+CORS_ORIGINS=https://<your-ngrok-subdomain>.ngrok-free.dev
+```
+
+### Verify
+
 ```bash
-uvicorn main:app --reload
+# Health
+curl -sS http://127.0.0.1:8000/health
+
+# One image (provider-dependent)
+curl -sS http://127.0.0.1:8000/generate_image \
+	-H "Content-Type: application/json" \
+	-d '{
+		"prompt": "Clean educational infographic showing 1 AU ≈ 1.496e8 km. Label Earth and Sun. High contrast."
+	}'
+
+# Visuals + merged audio
+curl -sS http://127.0.0.1:8000/generate_visuals_single_audio \
+	-H "Content-Type: application/json" \
+	-d '{ "text": "The Sun is a G-type star...", "max_scenes": 5 }'
 ```
 
-### 3️⃣ Connect Frontend (Lovable)
-- Set backend API endpoint in Lovable (e.g., `/generate_visuals`)
-- Paste any text → click **Generate Visual Notebook**
-- Enjoy your storybook 🎨
+---
+
+## Frontend — Quick Start (pnpm)
+
+Configure your frontend to call the backend base URL (e.g., `PUBLIC_BASE_URL`).
+
+Typical React workflow:
+
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
+
+Ensure your frontend uses absolute URLs from the backend responses (e.g., `image_url`, `audio_url`), which already include the `PUBLIC_BASE_URL` when set.
+
+If your frontend needs an explicit base URL, set it (e.g., Vite):
+
+```bash
+# .env.local in frontend (example)
+VITE_API_BASE=https://<your-ngrok-subdomain>.ngrok-free.dev
+```
 
 ---
 
-## 🧩 Team
+## Engine Switch: LangGraph vs Imperative
 
-| Name | Role | Focus |
-|------|------|-------|
-| Ji Min Lee | Backend / AI Orchestration | LLM pipeline, prompt generation, image synthesis |
-| Josh [Last Name] | Frontend / UI | Lovable interface & visualization |
-| [3rd Teammate] | XR Integration | Vision Pro immersive learning exploration |
+The backend can run either:
 
----
+- Imperative flow (default): sequential segmentation → prompts → images
+- LangGraph flow: graph-based orchestration
 
-## 🧠 Future Directions
-- 🔁 Character & style consistency using reference embeddings  
-- 🗣️ Text-to-speech narration for multimodal comprehension  
-- 🥽 Vision Pro version with spatial story panels  
-- 🌐 Chrome extension for real-time article visualization  
+Enable LangGraph by setting an env var and restarting the server:
 
----
+```bash
+export PIPELINE_ENGINE=langgraph
+uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-## 💬 1-Minute Pitch (for judges)
-“Reading should be visual, not stressful.  
-VisurAI transforms any passage into a sequence of AI-generated images that tell the story visually — empowering dyslexic and visual learners to understand through imagination.  
-Built with Lovable, LangChain, and Flux, VisurAI turns text into understanding — one image at a time.”
+Endpoints are the same (e.g., `POST /generate_visuals`), but execution uses the graph.
 
 ---
 
-## 📜 License
-MIT License © 2025 VisurAI Team
+## API Highlights
+
+- POST `/generate_visuals` → scenes with image URLs and a title
+- POST `/generate_visuals_with_audio` → scenes + per‑scene audio URLs + durations
+- POST `/generate_visuals_single_audio` → merged `audio_url`, total duration, timeline, scenes
+- GET `/generate_visuals_events` → Server‑Sent Events stream for progress
+- POST `/visuals_from_image_url` and `/visuals_from_image_upload` → OCR then visuals
 
 ---
 
-**Repo:** [github.com/masibasi/VisurAI](https://github.com/masibasi/VisurAI)  
-**Demo:** Coming soon — Lovable link
+## Troubleshooting
+
+- Audio fails to load after revisiting a story
+  - Make sure `PUBLIC_BASE_URL` points to your current public URL (ngrok URL may change)
+  - Store TTS files in a stable directory (`TTS_OUTPUT_DIR`); the backend serves it under `/static/audio`
+- OpenAI Images error: invalid size
+  - Use one of: `1024x1024`, `1024x1536`, `1536x1024`, or `auto` (see `OPENAI_IMAGE_SIZE`)
+- Replicate credit errors
+  - 402 Insufficient credit → top up your Replicate account
+- Mixed content blocked
+  - Use HTTPS for both frontend and backend (ngrok URL is HTTPS)
+- CORS
+  - Global CORS is enabled; if using credentials, set `CORS_ORIGINS` to your frontend origin
+
+---
+
+## License
+
+MIT License © 2025 Visurai Team
+
+---
+
+Made with care for learners who think in pictures.
