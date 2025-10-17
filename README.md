@@ -5,6 +5,8 @@
 🏆 Built at the Good Vibes Only AI/ML Buildathon @ USC (2025)
 
 ---
+## Service Link
+https://visurai-story-maker.lovable.app/
 
 ## Overview
 <img width="1097" height="795" alt="image" src="https://github.com/user-attachments/assets/f395581c-5f30-4da4-bb15-2092082983a7" />
