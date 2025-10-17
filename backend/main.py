@@ -11,6 +11,7 @@ Endpoints:
 import asyncio
 import json
 import logging
+import os
 from typing import List
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
@@ -27,6 +28,7 @@ from backend.models import (
     GenerateImageResponse,
     GenerateVisualsRequest,
     GenerateVisualsResponse,
+    GenerateVisualsSingleAudioResponse,
     GenerateVisualsWithAudioResponse,
     OCRFromImageURLRequest,
     OCRTextResponse,
@@ -34,11 +36,12 @@ from backend.models import (
     SceneWithAudio,
     SegmentRequest,
     SegmentResponse,
+    TimestampedAudioSegment,
     VisualsFromImageUploadResponse,
     VisualsFromImageURLRequest,
 )
 from backend.settings import get_settings
-from backend.tts import tts_scene_summary
+from backend.tts import concat_audios_with_timeline, tts_scene_summary
 from backend.vision import extract_text_from_image_bytes, extract_text_from_image_url
 
 s = get_settings()
@@ -66,6 +69,43 @@ app.mount(
 def health() -> dict:
     """Simple health check endpoint."""
     return {"status": "ok"}
+
+
+@app.get("/tts/diag")
+def tts_diag() -> dict:
+    """Check availability of duration libraries and TTS settings."""
+    info = {"mutagen": False, "tinytag": False, "tts_output_dir": s.tts_output_dir}
+    try:
+        import mutagen  # type: ignore
+
+        info["mutagen"] = True
+    except Exception:
+        info["mutagen"] = False
+    try:
+        import tinytag  # type: ignore
+
+        info["tinytag"] = True
+    except Exception:
+        info["tinytag"] = False
+    return info
+
+
+@app.get("/tts/duration")
+def tts_duration(file: str) -> dict:
+    """Measure duration for a file under the TTS output dir (filename only)."""
+    import os as _os
+
+    from backend.tts import _get_audio_duration_seconds  # local import
+
+    fname = _os.path.basename(file)
+    path = _os.path.join(s.tts_output_dir, fname)
+    exists = _os.path.exists(path)
+    dur = _get_audio_duration_seconds(path) if exists else None
+    try:
+        size = _os.path.getsize(path) if exists else None
+    except Exception:
+        size = None
+    return {"file": fname, "exists": exists, "duration": dur, "size": size}
 
 
 @app.post("/segment", response_model=SegmentResponse)
@@ -119,17 +159,29 @@ async def generate_visuals(req: GenerateVisualsRequest) -> GenerateVisualsRespon
     """Full pipeline, selectable engine: LangGraph (default) or imperative fallback."""
     if s.pipeline_engine == "langgraph":
         scenes = await asyncio.to_thread(run_visuals_graph, req.text, req.max_scenes)
-        return GenerateVisualsResponse(scenes=scenes)
+        # Generate a title for the full sequence
+        try:
+            title = chains.generate_title(req.text)
+        except Exception:
+            title = None
+        return GenerateVisualsResponse(scenes=scenes, title=title)
     # Imperative fallback: previous behavior
     raw_scenes = chains.segment_text_into_scenes(req.text, req.max_scenes)
     try:
         global_summary = chains.summarize_global_context(req.text)
     except Exception:
         global_summary = ""
+    # Also generate a concise title
+    try:
+        title = chains.generate_title(req.text)
+    except Exception:
+        title = None
     scenes_with_prompts: List[Scene] = []
     for sdict in raw_scenes:
         prompt = chains.generate_visual_prompt(
-            sdict["scene_summary"], global_summary=global_summary
+            sdict["scene_summary"],
+            global_summary=global_summary,
+            source_sentences=sdict.get("source_sentences"),
         )
         scenes_with_prompts.append(
             Scene(
@@ -153,7 +205,7 @@ async def generate_visuals(req: GenerateVisualsRequest) -> GenerateVisualsRespon
             return await gen(scene)
 
     results = await asyncio.gather(*(guarded_gen(scn) for scn in scenes_with_prompts))
-    return GenerateVisualsResponse(scenes=list(results))
+    return GenerateVisualsResponse(scenes=list(results), title=title)
 
 
 @app.post(
@@ -184,7 +236,62 @@ async def generate_visuals_with_audio(
         )
 
     enriched = await asyncio.gather(*(enrich(scn) for scn in visuals.scenes))
-    return GenerateVisualsWithAudioResponse(scenes=list(enriched))
+    return GenerateVisualsWithAudioResponse(scenes=list(enriched), title=visuals.title)
+
+
+@app.post(
+    "/generate_visuals_single_audio",
+    response_model=GenerateVisualsSingleAudioResponse,
+)
+async def generate_visuals_single_audio(
+    req: GenerateVisualsRequest,
+) -> GenerateVisualsSingleAudioResponse:
+    """Generate visuals once and produce a single merged audio with timestamped segments per scene.
+
+    Response fields:
+        - title: from the visuals pipeline
+        - audio_url: merged MP3 URL
+        - duration_seconds: total duration of merged audio
+        - timeline: list of { scene_id, start_sec, duration_sec }
+        - scenes: same scenes as /generate_visuals (no per-scene audio fields)
+    """
+    visuals = await generate_visuals(req)
+
+    # Generate scene clips first (using same TTS engine), then merge
+    files: List[tuple[int, str]] = []
+    for scn in visuals.scenes:
+        url, _dur = await tts_scene_summary(scn.scene_id, scn.scene_summary)
+        if not url:
+            continue
+        fname = url.rsplit("/", 1)[-1]
+        path = os.path.join(s.tts_output_dir, fname)
+        if os.path.exists(path):
+            files.append((scn.scene_id, path))
+
+    if not files:
+        raise HTTPException(status_code=502, detail="No TTS clips generated to merge")
+
+    out_path, total, timeline = await asyncio.to_thread(
+        concat_audios_with_timeline, files
+    )
+    audio_url = f"/static/audio/{os.path.basename(out_path)}"
+
+    segments: List[TimestampedAudioSegment] = [
+        TimestampedAudioSegment(
+            scene_id=it["scene_id"],
+            start_sec=it["start_sec"],
+            duration_sec=it["duration_sec"],
+        )
+        for it in timeline
+    ]
+
+    return GenerateVisualsSingleAudioResponse(
+        title=visuals.title,
+        audio_url=audio_url,
+        duration_seconds=total,
+        timeline=segments,
+        scenes=visuals.scenes,
+    )
 
 
 def _sse(event: str, data: dict) -> str:
@@ -226,7 +333,9 @@ async def generate_visuals_events(
             scenes: List[Scene] = []
             for sdict in raw_scenes:
                 prompt = chains.generate_visual_prompt(
-                    sdict["scene_summary"], global_summary=global_summary
+                    sdict["scene_summary"],
+                    global_summary=global_summary,
+                    source_sentences=sdict.get("source_sentences"),
                 )
                 scn = Scene(
                     scene_id=sdict["scene_id"],
@@ -282,7 +391,12 @@ async def generate_visuals_events(
                 }
                 for scn in scenes
             ]
-            yield _sse("complete", {"scenes": payload})
+            # also attach a title for the full sequence
+            try:
+                title = chains.generate_title(text)
+            except Exception:
+                title = None
+            yield _sse("complete", {"title": title, "scenes": payload})
         except Exception as e:
             logger.exception("[SSE] stream error")
             yield _sse("error", {"message": str(e)})

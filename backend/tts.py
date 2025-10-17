@@ -13,6 +13,7 @@ import os
 import time
 import uuid
 import wave
+from time import sleep
 from typing import Optional, Tuple
 
 from openai import OpenAI
@@ -28,40 +29,55 @@ def _write_file(data: bytes, path: str) -> None:
         f.write(data)
 
 
-def _get_audio_duration_seconds(path: str) -> float:
+def _get_audio_duration_seconds(
+    path: str, attempts: int = 5, delay_s: float = 0.1
+) -> float:
     """Compute audio duration for WAV/MP3 files.
 
     - For .wav, use the built-in wave module
     - For others (e.g., .mp3), try mutagen if available
     """
+    for i in range(max(1, attempts)):
+        try:
+            if path.lower().endswith(".wav"):
+                with wave.open(path, "rb") as w:
+                    frames = w.getnframes()
+                    rate = w.getframerate()
+                    if rate:
+                        return frames / float(rate)
+            else:
+                # Try mutagen first
+                try:
+                    from mutagen import File as MutagenFile  # type: ignore
+
+                    mf = MutagenFile(path)
+                    if mf and mf.info and getattr(mf.info, "length", None):
+                        return float(mf.info.length)
+                except Exception as e:
+                    logger.debug(
+                        "mutagen failed for %s (attempt %s): %s", path, i + 1, e
+                    )
+                # Fallback to tinytag
+                try:
+                    from tinytag import TinyTag  # type: ignore
+
+                    tag = TinyTag.get(path)
+                    if tag and getattr(tag, "duration", None):
+                        return float(tag.duration)
+                except Exception as e:
+                    logger.debug(
+                        "tinytag failed for %s (attempt %s): %s", path, i + 1, e
+                    )
+        except Exception as e:
+            logger.debug("duration read error for %s (attempt %s): %s", path, i + 1, e)
+        # brief backoff before next attempt
+        if i < attempts - 1:
+            sleep(delay_s)
     try:
-        if path.lower().endswith(".wav"):
-            with wave.open(path, "rb") as w:
-                frames = w.getnframes()
-                rate = w.getframerate()
-                if rate:
-                    return frames / float(rate)
-        else:
-            # Try mutagen first
-            try:
-                from mutagen import File as MutagenFile  # type: ignore
-
-                mf = MutagenFile(path)
-                if mf and mf.info and getattr(mf.info, "length", None):
-                    return float(mf.info.length)
-            except Exception as e:
-                logger.debug("mutagen failed for %s: %s", path, e)
-            # Fallback to tinytag
-            try:
-                from tinytag import TinyTag  # type: ignore
-
-                tag = TinyTag.get(path)
-                if tag and getattr(tag, "duration", None):
-                    return float(tag.duration)
-            except Exception as e:
-                logger.debug("tinytag failed for %s: %s", path, e)
+        size = os.path.getsize(path)
     except Exception:
-        return 0.0
+        size = -1
+    logger.warning("duration fallback 0.0 for %s (size=%s bytes)", path, size)
     return 0.0
 
 
@@ -144,3 +160,74 @@ async def tts_scene_summary(
         return await asyncio.to_thread(_tts_sync, scene_id, text)
     except Exception:
         return None, None
+
+
+def concat_audios_with_timeline(
+    files: list[tuple[int, str]],
+) -> tuple[str, float, list[dict]]:
+    """Concatenate a list of (scene_id, path) mp3 files into one mp3 using ffmpeg.
+
+    Returns (out_path, total_duration_sec, timeline), where timeline is a list of
+    dicts: { scene_id, start_sec, duration_sec }.
+    Requires ffmpeg available on PATH.
+    """
+    import shutil
+    import subprocess
+
+    if not files:
+        raise RuntimeError("No input files to concatenate")
+
+    # Build timeline from individual durations first
+    timeline: list[dict] = []
+    cursor = 0.0
+    for scene_id, path in files:
+        dur = _get_audio_duration_seconds(path)
+        timeline.append(
+            {
+                "scene_id": scene_id,
+                "start_sec": cursor,
+                "duration_sec": dur,
+            }
+        )
+        cursor += dur
+
+    # Ensure ffmpeg is available
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError(
+            "ffmpeg not found on PATH. Install it (e.g., `brew install ffmpeg` on macOS)."
+        )
+
+    # Prepare concat list file
+    ts = time.time_ns()
+    short = uuid.uuid4().hex[:6]
+    list_path = os.path.join(_s.tts_output_dir, f"concat_{ts}_{short}.txt")
+    with open(list_path, "w", encoding="utf-8") as f:
+        for _scene_id, path in files:
+            # Safe since our generated paths have no quotes/spaces by design
+            f.write(f"file '{path}'\n")
+
+    # Output path
+    fname = f"sequence_{ts}_{short}.mp3"
+    out_path = os.path.join(_s.tts_output_dir, fname)
+
+    # Run ffmpeg concat demuxer
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        list_path,
+        "-c",
+        "copy",
+        out_path,
+    ]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode(errors="ignore")
+        raise RuntimeError(f"ffmpeg concat failed: {stderr[-4000:]}")
+
+    total = _get_audio_duration_seconds(out_path)
+    return out_path, total, timeline

@@ -24,6 +24,31 @@ def _get_llm() -> ChatOpenAI:
     return ChatOpenAI(model=s.llm_model, api_key=s.openai_api_key, temperature=0.3)
 
 
+def _extract_key_facts(
+    scene_summary: str, source_sentences: List[str], max_facts: int = 6
+) -> str:
+    """Derive a compact bullet list of key factual details to preserve visual fidelity."""
+    llm = _get_llm()
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "Extract the most important concrete facts to preserve in an illustration. Prefer names, dates, locations, quantities, colors, distinctive objects, and relationships.",
+            ),
+            (
+                "user",
+                "Scene summary: {scene}\n\nReference snippets (verbatim):\n{references}\n\nReturn {max_facts} bullets maximum. Keep each bullet under 12 words.",
+            ),
+        ]
+    )
+    chain = prompt | llm | StrOutputParser()
+    refs = "\n".join(source_sentences)
+    facts = chain.invoke(
+        {"scene": scene_summary, "references": refs, "max_facts": max_facts}
+    ).strip()
+    return facts
+
+
 def segment_text_into_scenes(text: str, max_scenes: int = 8) -> List[dict]:
     """Split the input text into coherent visual scenes.
 
@@ -34,7 +59,7 @@ def segment_text_into_scenes(text: str, max_scenes: int = 8) -> List[dict]:
         [
             (
                 "system",
-                "You are a skilled story editor for visual learners. Split the user's text into at most {max_scenes} clear story beats. Each beat should be a short, concrete scene that is visually depictable. Also, for each scene, list which original sentences (by 1-based index) you used and include their exact text snippets.",
+                "You are a skilled story editor for visual learners. Split the user's text into at most {max_scenes} clear story beats. Each beat should be a short, concrete scene that is visually depictable. Preserve important factual details (names, dates, places, numbers, distinctive objects, colors, and actions). Avoid over-summarizing—retain concrete nouns and attributes that help the illustrator keep accuracy. Also, for each scene, list which original sentences (by 1-based index) you used and include their exact text snippets.",
             ),
             (
                 "user",
@@ -103,6 +128,7 @@ def generate_visual_prompt(
     scene_summary: str,
     global_summary: Optional[str] = None,
     style_guide: Optional[str] = None,
+    source_sentences: Optional[List[str]] = None,
 ) -> str:
     """Turn a scene summary into a detailed, style-consistent visual prompt for Flux, with global context and style guide."""
     llm = _get_llm()
@@ -114,23 +140,64 @@ def generate_visual_prompt(
         [
             (
                 "system",
-                "You are a prompt engineer creating concise, concrete prompts for an illustration model (Flux 1.1 Pro). Avoid text in images and watermarks.",
+                "You are a prompt engineer creating concise, concrete prompts for an illustration model (Flux 1.1 Pro). Avoid text in images and watermarks. Keep critical details from the scene summary—names, numbers, locations, distinctive items, colors, and relationships—so the image stays informative.",
             ),
             (
                 "user",
-                "Create a single-sentence image prompt for this scene (30-50 words, present tense).\n"
+                "Create a single-sentence image prompt for this scene (35-60 words, present tense).\n"
                 "Global context (for consistency across scenes): {global_context}\n"
                 "Style guide: {style_guide}\n"
+                "Reference snippets from the original text (verbatim, for factual fidelity):\n{references}\n"
                 "Scene: {scene}\n"
-                "Constraints: kid-friendly, dyslexia-friendly visuals, consistent characters/props; avoid text overlays; include composition cues.",
+                "Constraints: kid-friendly, dyslexia-friendly visuals, consistent characters/props; avoid text overlays; include composition cues; preserve concrete facts and attributes from the scene.",
             ),
         ]
     )
     chain = prompt | llm | StrOutputParser()
+    references = "\n".join(source_sentences or [])
+    # Try to synthesize key facts to avoid detail loss
+    key_facts = None
+    if source_sentences:
+        try:
+            key_facts = _extract_key_facts(scene_summary, source_sentences)
+        except Exception:
+            key_facts = None
     return chain.invoke(
         {
             "scene": scene_summary,
             "global_context": global_summary or "",
             "style_guide": effective_style or "",
+            "references": (
+                "Key facts to preserve:\n" + key_facts + "\n\n" if key_facts else ""
+            )
+            + references,
         }
     ).strip()
+
+
+def generate_title(text: str, max_chars: int = 80) -> str:
+    """Generate a short, engaging textbook-style title for the entire input text.
+
+    The title should be informative, specific, and kid-friendly. Avoid quotes.
+    """
+    llm = _get_llm()
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "You craft concise, engaging educational titles that summarize the core topic precisely.",
+            ),
+            (
+                "user",
+                "Write a short textbook chapter title (max {max_chars} chars) for the following content. Avoid quotes.\n\n{text}",
+            ),
+        ]
+    )
+    chain = prompt | llm | StrOutputParser()
+    title = chain.invoke({"text": text, "max_chars": max_chars}).strip()
+    # sanitize length and remove leading/trailing quotes if any
+    if len(title) > max_chars:
+        title = title[: max_chars - 1] + "…"
+    if title.startswith(('"', "'")) and title.endswith(('"', "'")):
+        title = title[1:-1].strip()
+    return title

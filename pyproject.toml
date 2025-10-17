@@ -1,22 +1,27 @@
 [project]
-name = "backend"
+name = "good-vibes-only"
 version = "0.1.0"
-description = "Add your description here"
+description = "Seequence backend/frontend monorepo"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.119.0",
+    "uvicorn>=0.37.0",
+    "pydantic>=2.9.0",
+    "python-dotenv>=1.1.1",
+    "openai>=2.4.0",
+    "replicate>=1.0.7",
+    "tenacity>=9.0.0",
     "langchain>=0.3.27",
     "langchain-core>=0.3.27",
     "langchain-openai>=0.2.12",
-    "langgraph>=0.2.36",
-    "langgraph-cli[inmem]>=0.1.0",
-    "openai>=2.4.0",
-    "python-multipart>=0.0.9",
-    "pydantic>=2.9.0",
-    "python-dotenv>=1.1.1",
-    "replicate>=1.0.7",
-    "uvicorn>=0.37.0",
-    "tenacity>=9.0.0",
     "langchain-community>=0.3.31",
+    "langgraph>=0.2.0",
+    "python-multipart>=0.0.9",
+    "mutagen>=1.47.0",
+    "tinytag>=1.10.1",
+    "pydub>=0.25.1",
 ]
+
+[tool.uv]
+dev-dependencies = []

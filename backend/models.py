@@ -42,6 +42,8 @@ class GenerateVisualsRequest(BaseModel):
 
 class GenerateVisualsResponse(BaseModel):
     scenes: List[Scene]
+    # A concise, engaging textbook/lesson title derived from the input text
+    title: Optional[str] = None
 
 
 class SceneWithAudio(Scene):
@@ -53,6 +55,22 @@ class SceneWithAudio(Scene):
 
 class GenerateVisualsWithAudioResponse(BaseModel):
     scenes: List[SceneWithAudio]
+    # Propagate the same title so the frontend can display it consistently
+    title: Optional[str] = None
+
+
+class TimestampedAudioSegment(BaseModel):
+    scene_id: int
+    start_sec: float
+    duration_sec: float
+
+
+class GenerateVisualsSingleAudioResponse(BaseModel):
+    title: Optional[str] = None
+    audio_url: str
+    duration_seconds: float
+    timeline: List[TimestampedAudioSegment]
+    scenes: List[Scene]  # same scenes, without per-scene audio
 
 
 # OCR-driven flows

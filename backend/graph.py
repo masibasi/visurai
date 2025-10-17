@@ -29,6 +29,7 @@ class VisualsState(TypedDict, total=False):
 
     # Output
     results: List[Scene]
+    title: str
 
 
 def node_segment(state: VisualsState) -> VisualsState:
@@ -39,6 +40,11 @@ def node_segment(state: VisualsState) -> VisualsState:
 
 def node_summarize(state: VisualsState) -> VisualsState:
     state["global_summary"] = chains.summarize_global_context(state["text"])
+    # Also set a title early so it's available downstream
+    try:
+        state["title"] = chains.generate_title(state["text"])  # type: ignore[assignment]
+    except Exception:
+        pass
     return state
 
 
@@ -49,7 +55,9 @@ def node_prompts(state: VisualsState) -> VisualsState:
     for sdict in scenes:
         prompts.append(
             chains.generate_visual_prompt(
-                sdict["scene_summary"], global_summary=global_summary
+                sdict["scene_summary"],
+                global_summary=global_summary,
+                source_sentences=sdict.get("source_sentences"),
             )
         )
     state["scene_prompts"] = prompts
