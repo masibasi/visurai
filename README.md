@@ -1,4 +1,4 @@
-# 🧩 Seequence
+# 🧩 VisurAI
 > *Transform text into understanding — one image at a time.*
 
 ### 🏆 Built at the **Good Vibes Only AI/ML Buildathon @ USC (2025)**
@@ -7,7 +7,7 @@
 
 ## 🎯 Overview
 
-**Seequence** is an AI-powered web application that helps dyslexic and visual learners comprehend written material through **visual storytelling**.
+**VisurAI** is an AI-powered web application that helps dyslexic and visual learners comprehend written material through **visual storytelling**.
 
 Instead of reading long passages, users can paste text and instantly receive a sequence of AI-generated images that *illustrate the story or concept*.  
 Each image is contextually linked — creating an **“image book”** that teaches through imagination rather than words.
@@ -60,7 +60,7 @@ Lovable Frontend
 ## 📁 Repository Structure
 
 ```
-seequence/
+VisurAI/
 ├── frontend/       # Lovable / React frontend by Josh
 ├── backend/        # FastAPI + LangChain orchestration by Ji Min
 ├── docs/           # Pitch deck, screenshots, demo video
@@ -74,8 +74,8 @@ seequence/
 
 ### 1️⃣ Clone & Setup
 ```bash
-git clone https://github.com/masibasi/seequence.git
-cd seequence/backend
+git clone https://github.com/masibasi/VisurAI.git
+cd VisurAI/backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -113,15 +113,15 @@ uvicorn main:app --reload
 
 ## 💬 1-Minute Pitch (for judges)
 “Reading should be visual, not stressful.  
-Seequence transforms any passage into a sequence of AI-generated images that tell the story visually — empowering dyslexic and visual learners to understand through imagination.  
-Built with Lovable, LangChain, and Flux, Seequence turns text into understanding — one image at a time.”
+VisurAI transforms any passage into a sequence of AI-generated images that tell the story visually — empowering dyslexic and visual learners to understand through imagination.  
+Built with Lovable, LangChain, and Flux, VisurAI turns text into understanding — one image at a time.”
 
 ---
 
 ## 📜 License
-MIT License © 2025 Seequence Team
+MIT License © 2025 VisurAI Team
 
 ---
 
-**Repo:** [github.com/masibasi/seequence](https://github.com/masibasi/seequence)  
+**Repo:** [github.com/masibasi/VisurAI](https://github.com/masibasi/VisurAI)  
 **Demo:** Coming soon — Lovable link
