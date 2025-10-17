@@ -8,7 +8,7 @@ FastAPI backend that turns text into a sequence of AI-generated images using GPT
    - `OPENAI_API_KEY`
    - `REPLICATE_API_TOKEN`
 2. Install deps with uv:
-   - `uv sync`
+   - `uv sync` # ensures langgraph and other deps are installed
 3. Run server:
    - `uv run uvicorn main:app --reload --port 8000`
 
@@ -23,3 +23,9 @@ FastAPI backend that turns text into a sequence of AI-generated images using GPT
 
 - Concurrency for image generation is controlled by `MAX_CONCURRENCY`.
 - LLM model defaults to `gpt-4o-mini` and can be changed via `LLM_MODEL`.
+
+## Pipeline engine
+
+- This project can run the full pipeline using a LangGraph graph or the original imperative flow.
+- By default, `PIPELINE_ENGINE=langgraph`. To switch back: set `PIPELINE_ENGINE=imperative` in `backend/.env` and restart the server.
+- The LangGraph pipeline runs image generation serially for easier debugging. The imperative path uses asyncio to parallelize image generation.

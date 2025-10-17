@@ -1,0 +1,9 @@
+{
+  "graphs": {
+    "default": "backend.graph:graph"
+  },
+  "dependencies": ["langchain-openai", "langchain-core", "langchain", "langgraph", "replicate", "pydantic"],
+  "env": {
+    "PYTHONPATH": "."
+  }
+}

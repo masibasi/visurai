@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from tenacity import RetryError
 
 from backend import chains
+from backend.graph import run_visuals_graph
 from backend.image_gen import BillingCreditError, generate_image_url
 from backend.models import (
     GenerateImageRequest,
@@ -95,15 +96,16 @@ def generate_image(req: GenerateImageRequest) -> GenerateImageResponse:
 
 @app.post("/generate_visuals", response_model=GenerateVisualsResponse)
 async def generate_visuals(req: GenerateVisualsRequest) -> GenerateVisualsResponse:
-    """Full pipeline: segment -> prompt -> parallel image generation."""
+    """Full pipeline, selectable engine: LangGraph (default) or imperative fallback."""
+    if s.pipeline_engine == "langgraph":
+        scenes = await asyncio.to_thread(run_visuals_graph, req.text, req.max_scenes)
+        return GenerateVisualsResponse(scenes=scenes)
+    # Imperative fallback: previous behavior
     raw_scenes = chains.segment_text_into_scenes(req.text, req.max_scenes)
-    # One-shot global context summary to enforce consistency across scene prompts
     try:
         global_summary = chains.summarize_global_context(req.text)
     except Exception:
         global_summary = ""
-
-    # Generate prompts sequentially (fast), then images in parallel (slower/io-bound)
     scenes_with_prompts: List[Scene] = []
     for sdict in raw_scenes:
         prompt = chains.generate_visual_prompt(
@@ -119,7 +121,6 @@ async def generate_visuals(req: GenerateVisualsRequest) -> GenerateVisualsRespon
             )
         )
 
-    # Parallelize image generation using asyncio.to_thread for the sync Replicate call
     async def gen(scene: Scene) -> Scene:
         url = await asyncio.to_thread(generate_image_url, scene.prompt or "")
         scene.image_url = url

@@ -40,6 +40,9 @@ class Settings(BaseModel):
         )
     )
 
+    # Pipeline engine: 'langgraph' (graph-based) or 'imperative' (existing flow)
+    pipeline_engine: str = Field(default="langgraph")
+
 
 def _parse_list(value: Optional[str]) -> List[str]:
     if not value:
@@ -69,4 +72,5 @@ def get_settings() -> Settings:
             "Friendly illustrated style; kid- and dyslexia-friendly; gentle colors; clear primary subject; "
             "soft lighting; clean composition; avoid text overlays and watermarks; maintain consistent characters/props across scenes."
         ),
+        pipeline_engine=os.getenv("PIPELINE_ENGINE", "langgraph"),
     )
