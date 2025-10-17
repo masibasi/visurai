@@ -39,6 +39,7 @@ Each image is contextually linked — creating an **“image book”** that teac
 
 ## 🏗 Architecture
 
+```
 User Input (Text)
 ↓
 LLM Context Parser
@@ -52,17 +53,20 @@ Image Model (Flux / SDXL)
 ↓
 Lovable Frontend
 (Displays “visual notebook”)
+```
 
 ---
 
 ## 📁 Repository Structure
 
+```
 seequence/
 ├── frontend/       # Lovable / React frontend by Josh
 ├── backend/        # FastAPI + LangChain orchestration by Ji Min
 ├── docs/           # Pitch deck, screenshots, demo video
 ├── .gitignore
 └── README.md
+```
 
 ---
 
@@ -70,56 +74,54 @@ seequence/
 
 ### 1️⃣ Clone & Setup
 ```bash
-git clone https://github.com/<username>/seequence.git
+git clone https://github.com/masibasi/seequence.git
 cd seequence/backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
 
-2️⃣ Run Backend
-
+### 2️⃣ Run Backend
+```bash
 uvicorn main:app --reload
+```
 
-3️⃣ Connect Frontend (Lovable)
-	•	Set backend API endpoint in Lovable (e.g., /generate_visuals)
-	•	Paste any text → click “Generate Visual Notebook”
-	•	Enjoy your storybook 🎨
-
-⸻
-
-🧩 Team
-
-Name	Role	Focus
-Ji Min Lee	Backend / AI Orchestration	LLM pipeline, prompt generation, image synthesis
-Josh [Last Name]	Frontend / UI	Lovable interface & visualization
-[3rd Teammate]	XR Integration	Vision Pro immersive learning exploration
-
-
-⸻
-
-🧠 Future Directions
-	•	🔁 Character & style consistency using reference embeddings
-	•	🗣️ Text-to-speech narration for multimodal comprehension
-	•	🥽 Vision Pro version with spatial story panels
-	•	🌐 Chrome extension for real-time article visualization
-
-⸻
-
-💬 1-Minute Pitch (for judges)
-
-“Reading should be visual, not stressful.
-Seequence transforms any passage into a sequence of AI-generated images that tell the story visually — empowering dyslexic and visual learners to understand through imagination.
-Built with Lovable, LangChain, and Flux, Seequence turns text into understanding — one image at a time.”
-
-⸻
-
-📜 License
-
-MIT License © 2025 Seequence Team
-
-⸻
-
-Repo: github.com/masibasi/seequence
-Demo: (Coming soon — Lovable link)
+### 3️⃣ Connect Frontend (Lovable)
+- Set backend API endpoint in Lovable (e.g., `/generate_visuals`)
+- Paste any text → click **Generate Visual Notebook**
+- Enjoy your storybook 🎨
 
 ---
+
+## 🧩 Team
+
+| Name | Role | Focus |
+|------|------|-------|
+| Ji Min Lee | Backend / AI Orchestration | LLM pipeline, prompt generation, image synthesis |
+| Josh [Last Name] | Frontend / UI | Lovable interface & visualization |
+| [3rd Teammate] | XR Integration | Vision Pro immersive learning exploration |
+
+---
+
+## 🧠 Future Directions
+- 🔁 Character & style consistency using reference embeddings  
+- 🗣️ Text-to-speech narration for multimodal comprehension  
+- 🥽 Vision Pro version with spatial story panels  
+- 🌐 Chrome extension for real-time article visualization  
+
+---
+
+## 💬 1-Minute Pitch (for judges)
+“Reading should be visual, not stressful.  
+Seequence transforms any passage into a sequence of AI-generated images that tell the story visually — empowering dyslexic and visual learners to understand through imagination.  
+Built with Lovable, LangChain, and Flux, Seequence turns text into understanding — one image at a time.”
+
+---
+
+## 📜 License
+MIT License © 2025 Seequence Team
+
+---
+
+**Repo:** [github.com/masibasi/seequence](https://github.com/masibasi/seequence)  
+**Demo:** Coming soon — Lovable link
