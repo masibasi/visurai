@@ -42,3 +42,25 @@ class GenerateVisualsRequest(BaseModel):
 
 class GenerateVisualsResponse(BaseModel):
     scenes: List[Scene]
+
+
+# OCR-driven flows
+class VisualsFromImageURLRequest(BaseModel):
+    image_url: str
+    max_scenes: int = 8
+    prompt_hint: Optional[str] = None  # optional OCR instruction
+
+
+class VisualsFromImageUploadResponse(BaseModel):
+    extracted_text: str
+    result: GenerateVisualsResponse
+
+
+# OCR-only flows
+class OCRFromImageURLRequest(BaseModel):
+    image_url: str
+    prompt_hint: Optional[str] = None
+
+
+class OCRTextResponse(BaseModel):
+    extracted_text: str

@@ -11,7 +11,7 @@ Endpoints:
 import asyncio
 from typing import List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from tenacity import RetryError
 
@@ -23,11 +23,16 @@ from backend.models import (
     GenerateImageResponse,
     GenerateVisualsRequest,
     GenerateVisualsResponse,
+    OCRFromImageURLRequest,
+    OCRTextResponse,
     Scene,
     SegmentRequest,
     SegmentResponse,
+    VisualsFromImageUploadResponse,
+    VisualsFromImageURLRequest,
 )
 from backend.settings import get_settings
+from backend.vision import extract_text_from_image_bytes, extract_text_from_image_url
 
 s = get_settings()
 app = FastAPI(title="Seequence Backend", version="0.1.0")
@@ -134,6 +139,51 @@ async def generate_visuals(req: GenerateVisualsRequest) -> GenerateVisualsRespon
 
     results = await asyncio.gather(*(guarded_gen(scn) for scn in scenes_with_prompts))
     return GenerateVisualsResponse(scenes=list(results))
+
+
+@app.post("/visuals_from_image_url", response_model=GenerateVisualsResponse)
+async def visuals_from_image_url(
+    req: VisualsFromImageURLRequest,
+) -> GenerateVisualsResponse:
+    """Extract text from image URL via Vision, then run generate_visuals on the extracted text."""
+    text = await asyncio.to_thread(
+        extract_text_from_image_url, req.image_url, req.prompt_hint
+    )
+    return await generate_visuals(
+        GenerateVisualsRequest(text=text, max_scenes=req.max_scenes)
+    )
+
+
+@app.post("/visuals_from_image_upload", response_model=VisualsFromImageUploadResponse)
+async def visuals_from_image_upload(
+    file: UploadFile = File(...), max_scenes: int = 8
+) -> VisualsFromImageUploadResponse:
+    """Accept an uploaded image, OCR it, then run generate_visuals on the extracted text."""
+    data = await file.read()
+    content_type = file.content_type or "image/png"
+    text = await asyncio.to_thread(extract_text_from_image_bytes, content_type, data)
+    result = await generate_visuals(
+        GenerateVisualsRequest(text=text, max_scenes=max_scenes)
+    )
+    return VisualsFromImageUploadResponse(extracted_text=text, result=result)
+
+
+@app.post("/ocr_from_image_url", response_model=OCRTextResponse)
+async def ocr_from_image_url(req: OCRFromImageURLRequest) -> OCRTextResponse:
+    """Extract text only from a public image URL (no image generation)."""
+    text = await asyncio.to_thread(
+        extract_text_from_image_url, req.image_url, req.prompt_hint
+    )
+    return OCRTextResponse(extracted_text=text)
+
+
+@app.post("/ocr_from_image_upload", response_model=OCRTextResponse)
+async def ocr_from_image_upload(file: UploadFile = File(...)) -> OCRTextResponse:
+    """Extract text only from an uploaded image file (no image generation)."""
+    data = await file.read()
+    content_type = file.content_type or "image/png"
+    text = await asyncio.to_thread(extract_text_from_image_bytes, content_type, data)
+    return OCRTextResponse(extracted_text=text)
 
 
 # Run from repo root:
