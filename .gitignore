@@ -1,0 +1,54 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+site/
+
+# uv / virtual envs
+**/.python-version
+**/.venv/
+**/venv/
+**/.uv/
+
+# Node / frontend
+node_modules/
+dist/
+.next/
+out/
+*.log
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Lock/Local state
+*.lock
+*.lockb
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+# 
+.env
