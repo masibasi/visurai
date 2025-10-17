@@ -1,6 +1,7 @@
 """
 Application settings loaded from environment variables using dotenv + pydantic.
 """
+
 from __future__ import annotations
 
 import os
@@ -16,6 +17,7 @@ class Settings(BaseModel):
     environment: str = Field(default="local")
     api_prefix: str = Field(default="/api")
     cors_origins: List[str] = Field(default_factory=lambda: ["*"])
+    cors_origin_regex: Optional[str] = Field(default=None)
 
     # LLM
     llm_provider: str = Field(default="openai")  # openai | anthropic (future)
@@ -54,6 +56,7 @@ def get_settings() -> Settings:
         environment=os.getenv("ENVIRONMENT", "local"),
         api_prefix=os.getenv("API_PREFIX", "/api"),
         cors_origins=_parse_list(os.getenv("CORS_ORIGINS")),
+        cors_origin_regex=os.getenv("CORS_ORIGIN_REGEX"),
         llm_provider=os.getenv("LLM_PROVIDER", "openai"),
         llm_model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
@@ -67,5 +70,3 @@ def get_settings() -> Settings:
             "soft lighting; clean composition; avoid text overlays and watermarks; maintain consistent characters/props across scenes."
         ),
     )
-
-    
