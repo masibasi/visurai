@@ -42,25 +42,58 @@ def generate_image_url(prompt: str, seed: Optional[int] = None) -> str:
     input_payload = {
         "prompt": prompt,
     }
+    # Prefer aspect ratio when supported by the model
+    if getattr(s, "replicate_aspect_ratio", None):
+        input_payload["aspect_ratio"] = s.replicate_aspect_ratio
+    elif s.replicate_width and s.replicate_height:
+        input_payload["width"] = s.replicate_width
+        input_payload["height"] = s.replicate_height
     if seed is not None:
         input_payload["seed"] = seed
 
-    try:
-        # Prefer URL results over local file outputs
-        output = client.run(
+    def _run_with_payload(payload: dict):
+        return client.run(
             s.replicate_model,
-            input=input_payload,
+            input=payload,
             timeout=s.replicate_timeout_seconds,
             use_file_output=False,
         )
+
+    try:
+        # Prefer URL results over local file outputs
+        output = _run_with_payload(input_payload)
     except ReplicateError as e:
-        # Surface common billing/auth issues with clear messages
+        # Surface common billing/auth issues with clear messages first
         msg = str(e)
         if "Insufficient credit" in msg or "status: 402" in msg:
             raise BillingCreditError(
                 "Replicate billing: insufficient credit. Please add credit to your Replicate account."
             )
-        raise
+        # If the model doesn't support aspect_ratio, retry using width/height (1280x720)
+        if "aspect_ratio" in msg:
+            retry_payload = {
+                k: v for k, v in input_payload.items() if k != "aspect_ratio"
+            }
+            retry_payload.setdefault("width", s.replicate_width or 1280)
+            retry_payload.setdefault("height", s.replicate_height or 720)
+            try:
+                output = _run_with_payload(retry_payload)
+            except ReplicateError as e2:
+                msg2 = str(e2)
+                # Last resort: drop explicit sizing and hint the ratio in the prompt
+                if any(tok in msg2 for tok in ["width", "height"]):
+                    hinted = dict(retry_payload)
+                    hinted.pop("width", None)
+                    hinted.pop("height", None)
+                    hinted["prompt"] = f"{prompt}\n\n[Compose in a 16:9 aspect ratio]"
+                    output = _run_with_payload(hinted)
+                else:
+                    raise
+        else:
+            # Unknown input error; attempt a prompt-hinted retry once
+            hinted = dict(input_payload)
+            hinted["prompt"] = f"{prompt}\n\n[Compose in a 16:9 aspect ratio]"
+            output = _run_with_payload(hinted)
 
     # Replicate may return a list of URLs/FileOutputs or a single object; normalize.
     if isinstance(output, list) and output:

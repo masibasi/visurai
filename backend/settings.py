@@ -28,6 +28,14 @@ class Settings(BaseModel):
     replicate_api_token: Optional[str] = Field(default=None)
     replicate_model: str = Field(default="black-forest-labs/flux-1.1-pro")
     replicate_timeout_seconds: int = Field(default=300)
+    # Desired output shape for generated images
+    replicate_aspect_ratio: Optional[str] = Field(
+        default="16:9"
+    )  # e.g., "1:1", "3:2", "16:9"
+    replicate_width: Optional[int] = Field(
+        default=None
+    )  # only used if aspect ratio not provided
+    replicate_height: Optional[int] = Field(default=None)
 
     # Performance
     max_concurrency: int = Field(default=4)
@@ -81,6 +89,15 @@ def get_settings() -> Settings:
         replicate_api_token=os.getenv("REPLICATE_API_TOKEN"),
         replicate_model=os.getenv("REPLICATE_MODEL", "black-forest-labs/flux-1.1-pro"),
         replicate_timeout_seconds=int(os.getenv("REPLICATE_TIMEOUT_SECONDS", "300")),
+        replicate_aspect_ratio=os.getenv("REPLICATE_ASPECT_RATIO", "16:9"),
+        replicate_width=(
+            int(os.getenv("REPLICATE_WIDTH")) if os.getenv("REPLICATE_WIDTH") else None
+        ),
+        replicate_height=(
+            int(os.getenv("REPLICATE_HEIGHT"))
+            if os.getenv("REPLICATE_HEIGHT")
+            else None
+        ),
         max_concurrency=int(os.getenv("MAX_CONCURRENCY", "4")),
         style_guide=os.getenv("STYLE_GUIDE", None)
         or (
