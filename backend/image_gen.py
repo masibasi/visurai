@@ -1,10 +1,13 @@
-"""Replicate image generation using Flux 1.1 Pro.
+"""Replicate image generation helper.
 
-Wraps the Replicate client and exposes an async-friendly function to generate a single image URL.
+Generates a single image URL from a text prompt using the configured Replicate model.
+Handles model-specific quirks (e.g., SD3 prefers aspect_ratio), 16:9 targeting,
+size clamping to multiples of 64, and clear error propagation.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Optional
 
@@ -14,6 +17,8 @@ from replicate.helpers import FileOutput
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from .settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class BillingCreditError(RuntimeError):
@@ -38,20 +43,7 @@ def generate_image_url(prompt: str, seed: Optional[int] = None) -> str:
     s = get_settings()
     client = _get_replicate_client()
 
-    # The exact input schema can vary across model versions; we set minimal, robust fields.
-    input_payload = {
-        "prompt": prompt,
-    }
-    # Prefer aspect ratio when supported by the model
-    if getattr(s, "replicate_aspect_ratio", None):
-        input_payload["aspect_ratio"] = s.replicate_aspect_ratio
-    elif s.replicate_width and s.replicate_height:
-        input_payload["width"] = s.replicate_width
-        input_payload["height"] = s.replicate_height
-    if seed is not None:
-        input_payload["seed"] = seed
-
-    def _run_with_payload(payload: dict):
+    def _run(payload: dict):
         return client.run(
             s.replicate_model,
             input=payload,
@@ -59,41 +51,71 @@ def generate_image_url(prompt: str, seed: Optional[int] = None) -> str:
             use_file_output=False,
         )
 
+    # Base payload
+    payload: dict = {"prompt": prompt}
+
+    # Detect SD3-like models that prefer aspect_ratio
+    model_id = (s.replicate_model or "").lower()
+    sd3_like = any(
+        tok in model_id
+        for tok in (
+            "stability-ai/stable-diffusion-3",
+            "stability-ai/sd3",
+            "stable-diffusion-3",
+            "sd3",
+        )
+    )
+
+    if sd3_like:
+        payload["aspect_ratio"] = getattr(s, "replicate_aspect_ratio", None) or "16:9"
+    else:
+        if s.replicate_width and s.replicate_height:
+
+            def _clamp(v: int) -> int:
+                v = max(64, v)
+                return (v // 64) * 64
+
+            cw, ch = _clamp(s.replicate_width), _clamp(s.replicate_height)
+            if (cw, ch) != (s.replicate_width, s.replicate_height):
+                logger.info(
+                    "Adjusted requested size %sx%s -> %sx%s for model %s",
+                    s.replicate_width,
+                    s.replicate_height,
+                    cw,
+                    ch,
+                    s.replicate_model,
+                )
+            payload["width"], payload["height"] = cw, ch
+        elif getattr(s, "replicate_aspect_ratio", None):
+            payload["aspect_ratio"] = s.replicate_aspect_ratio
+
+    if seed is not None:
+        payload["seed"] = seed
+
     try:
-        # Prefer URL results over local file outputs
-        output = _run_with_payload(input_payload)
+        output = _run(payload)
     except ReplicateError as e:
-        # Surface common billing/auth issues with clear messages first
         msg = str(e)
+        logger.warning("Replicate error (%s): %s", s.replicate_model, msg)
         if "Insufficient credit" in msg or "status: 402" in msg:
             raise BillingCreditError(
                 "Replicate billing: insufficient credit. Please add credit to your Replicate account."
             )
-        # If the model doesn't support aspect_ratio, retry using width/height (1280x720)
-        if "aspect_ratio" in msg:
-            retry_payload = {
-                k: v for k, v in input_payload.items() if k != "aspect_ratio"
-            }
-            retry_payload.setdefault("width", s.replicate_width or 1280)
-            retry_payload.setdefault("height", s.replicate_height or 720)
-            try:
-                output = _run_with_payload(retry_payload)
-            except ReplicateError as e2:
-                msg2 = str(e2)
-                # Last resort: drop explicit sizing and hint the ratio in the prompt
-                if any(tok in msg2 for tok in ["width", "height"]):
-                    hinted = dict(retry_payload)
-                    hinted.pop("width", None)
-                    hinted.pop("height", None)
-                    hinted["prompt"] = f"{prompt}\n\n[Compose in a 16:9 aspect ratio]"
-                    output = _run_with_payload(hinted)
-                else:
-                    raise
+        # Retry by toggling AR vs dims, else prompt hint
+        if "aspect" in msg and "ratio" in msg:
+            retry = {k: v for k, v in payload.items() if k != "aspect_ratio"}
+            retry["width"], retry["height"] = 1280, 720
+            output = _run(retry)
+        elif any(tok in msg for tok in ("width", "height", "size", "dimension")):
+            retry = {k: v for k, v in payload.items() if k not in ("width", "height")}
+            retry["aspect_ratio"] = getattr(s, "replicate_aspect_ratio", None) or "16:9"
+            output = _run(retry)
         else:
-            # Unknown input error; attempt a prompt-hinted retry once
-            hinted = dict(input_payload)
+            hinted = dict(payload)
+            hinted.pop("width", None)
+            hinted.pop("height", None)
             hinted["prompt"] = f"{prompt}\n\n[Compose in a 16:9 aspect ratio]"
-            output = _run_with_payload(hinted)
+            output = _run(hinted)
 
     # Replicate may return a list of URLs/FileOutputs or a single object; normalize.
     if isinstance(output, list) and output:
