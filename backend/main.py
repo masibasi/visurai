@@ -131,6 +131,36 @@ def tts_duration(file: str) -> dict:
     return {"file": fname, "exists": exists, "duration": dur, "size": size}
 
 
+@app.get("/debug/audio_info")
+def debug_audio_info(file: str, request: Request) -> dict:
+    """Debug: Inspect a file under the TTS output dir by filename.
+
+    Returns existence, size, mtime, absolute path, and the public URL used by clients.
+    """
+    import os as _os
+    fname = _os.path.basename(file)
+    path = _os.path.join(s.tts_output_dir, fname)
+    exists = _os.path.exists(path)
+    try:
+        size = _os.path.getsize(path) if exists else None
+    except Exception:
+        size = None
+    try:
+        mtime = _os.path.getmtime(path) if exists else None
+    except Exception:
+        mtime = None
+    public_url = _abs_url(request, f"/static/audio/{fname}")
+    return {
+        "file": fname,
+        "exists": exists,
+        "size": size,
+        "mtime": mtime,
+        "path": path,
+        "public_url": public_url,
+        "public_base_url": s.public_base_url,
+    }
+
+
 @app.post("/segment", response_model=SegmentResponse)
 def segment(req: SegmentRequest) -> SegmentResponse:
     """Split input text into coherent scenes using the LLM."""

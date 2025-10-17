@@ -1,0 +1,143 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 4%;
+    --card: 0 0% 98%;
+    --card-foreground: 240 10% 4%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 4%;
+    --primary: 14 90% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 24 100% 95%;
+    --secondary-foreground: 240 10% 4%;
+    --muted: 24 100% 95%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 24 100% 95%;
+    --accent-foreground: 240 10% 4%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 24 20% 88%;
+    --input: 24 20% 88%;
+    --ring: 14 90% 53%;
+    --chart-1: 14 90% 53%;
+    --chart-2: 25 95% 53%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 45 93% 47%;
+    --chart-5: 32 95% 44%;
+    --radius: 0.75rem;
+    
+    --gradient-library: linear-gradient(135deg, hsl(0, 0%, 100%) 0%, hsl(24, 100%, 98%) 100%);
+    --gradient-shelf: linear-gradient(180deg, hsl(0, 0%, 98%) 0%, hsl(24, 40%, 96%) 100%);
+    
+    --shadow-soft: 0 2px 8px -2px hsl(220, 13%, 20%, 0.08);
+    --shadow-medium: 0 8px 24px -4px hsl(220, 13%, 20%, 0.12);
+    --shadow-elevated: 0 16px 48px -8px hsl(220, 13%, 20%, 0.16);
+    
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 213 31% 97%;
+    --card: 224 71% 6%;
+    --card-foreground: 213 31% 97%;
+    --popover: 224 71% 4%;
+    --popover-foreground: 213 31% 97%;
+    --primary: 18 95% 60%;
+    --primary-foreground: 224 71% 4%;
+    --secondary: 222 47% 11%;
+    --secondary-foreground: 213 31% 97%;
+    --muted: 222 47% 11%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 222 47% 11%;
+    --accent-foreground: 213 31% 97%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 213 31% 97%;
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+    --ring: 18 95% 60%;
+    --chart-1: 18 95% 60%;
+    --chart-2: 25 95% 53%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 45 93% 47%;
+    --chart-5: 32 95% 44%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+    background: var(--gradient-library);
+    background-attachment: fixed;
+    color: hsl(var(--foreground));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body.dyslexia-mode {
+    font-family: 'Lexend', 'Quicksand', 'Nunito', system-ui, sans-serif;
+    letter-spacing: 0.02em;
+    line-height: 1.6;
+  }
+
+  /* Focus rings for accessibility */
+  *:focus-visible {
+    @apply outline-none ring-4 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer components {
+  .library-card {
+    background: hsl(var(--card));
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-soft);
+    border: 1px solid hsl(var(--border));
+    transition: var(--transition-smooth);
+  }
+
+  .library-card:hover {
+    box-shadow: var(--shadow-medium);
+    transform: translateY(-2px);
+  }
+
+  .btn-primary {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    font-weight: 600;
+    box-shadow: var(--shadow-soft);
+    transition: var(--transition-smooth);
+  }
+
+  .btn-primary:hover {
+    box-shadow: var(--shadow-medium);
+    transform: translateY(-1px);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+
+  .shelf-section {
+    background: var(--gradient-shelf);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    box-shadow: inset 0 2px 8px hsl(220, 13%, 20%, 0.04);
+  }
+}

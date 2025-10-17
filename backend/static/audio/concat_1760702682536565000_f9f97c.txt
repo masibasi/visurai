@@ -1,0 +1,4 @@
+file '/Users/jiminlee/Codes/good-vibes-only/backend/static/audio/scene_1_alloy_1760702675564982000_b1e935.mp3'
+file '/Users/jiminlee/Codes/good-vibes-only/backend/static/audio/scene_2_alloy_1760702677890770000_6283c7.mp3'
+file '/Users/jiminlee/Codes/good-vibes-only/backend/static/audio/scene_3_alloy_1760702679204716000_96c801.mp3'
+file '/Users/jiminlee/Codes/good-vibes-only/backend/static/audio/scene_4_alloy_1760702681211015000_b54eed.mp3'
