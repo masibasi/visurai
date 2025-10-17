@@ -2,7 +2,8 @@
 
 Generates a single image URL from a text prompt using the configured Replicate model.
 Handles model-specific quirks (e.g., SD3 prefers aspect_ratio), 16:9 targeting,
-size clamping to multiples of 64, and clear error propagation.
+size clamping to multiples of 64, and clear error propagation. Supports Replicate
+and OpenAI (gpt-image-1) providers.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import os
 from typing import Optional
 
 import replicate
+from openai import OpenAI
 from replicate.exceptions import ReplicateError
 from replicate.helpers import FileOutput
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
@@ -39,8 +41,67 @@ def _get_replicate_client() -> replicate.Client:
     retry=retry_if_exception(lambda e: not isinstance(e, BillingCreditError)),
 )
 def generate_image_url(prompt: str, seed: Optional[int] = None) -> str:
-    """Generate a single image from a prompt and return the image URL."""
+    """Generate a single image from a prompt and return the image URL.
+
+    If IMAGE_PROVIDER=openai, generates via OpenAI Images (gpt-image-1), saves PNG
+    to settings.images_output_dir and returns a /static/images URL.
+    Otherwise uses Replicate as before and returns a hosted URL from Replicate.
+    """
     s = get_settings()
+
+    # OpenAI Images path
+    if getattr(s, "image_provider", "replicate") == "openai":
+        if not s.openai_api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set for OpenAI image generation")
+        client = OpenAI(api_key=s.openai_api_key)
+        # Use supported sizes only; try preferred then fallback
+        size_candidates = []
+        preferred = (s.openai_image_size or "1536x1024").strip()
+        if preferred:
+            size_candidates.append(preferred)
+        # Add safe fallbacks
+        for sz in ("1536x1024", "1024x1536", "1024x1024", "auto"):
+            if sz not in size_candidates:
+                size_candidates.append(sz)
+
+        last_err: Optional[Exception] = None
+        resp = None
+        for sz in size_candidates:
+            try:
+                resp = client.images.generate(
+                    model=s.openai_image_model or "gpt-image-1",
+                    prompt=prompt,
+                    size=sz,
+                    quality="high",
+                )
+                break
+            except Exception as e:
+                last_err = e
+                continue
+        if resp is None:
+            raise RuntimeError(f"OpenAI image generation failed: {last_err}")
+        # SDK returns base64 data under data[0].b64_json
+        try:
+            img_b64 = resp.data[0].b64_json  # type: ignore[attr-defined]
+            if not img_b64:
+                raise RuntimeError("OpenAI returned empty image data")
+        except Exception as e:
+            raise RuntimeError(f"Unexpected OpenAI image response: {e}")
+        import base64
+        import time
+        import uuid
+        from pathlib import Path
+
+        ts = time.time_ns()
+        short = uuid.uuid4().hex[:6]
+        fname = f"img_{ts}_{short}.png"
+        out_path = os.path.join(s.images_output_dir, fname)
+        Path(s.images_output_dir).mkdir(parents=True, exist_ok=True)
+        with open(out_path, "wb") as f:
+            f.write(base64.b64decode(img_b64))
+        return f"/static/images/{fname}"
+
+    # Replicate path (default)
     client = _get_replicate_client()
 
     def _run(payload: dict):

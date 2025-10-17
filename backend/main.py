@@ -14,7 +14,7 @@ import logging
 import os
 from typing import List
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -64,11 +64,34 @@ app.mount(
     name="audio",
 )
 
+# Serve generated images (for providers that write to disk) under /static/images
+app.mount(
+    "/static/images",
+    StaticFiles(directory=s.images_output_dir),
+    name="images",
+)
+
 
 @app.get("/health")
 def health() -> dict:
     """Simple health check endpoint."""
     return {"status": "ok"}
+
+
+def _abs_url(request: Request, path_or_url: str) -> str:
+    """Convert a relative '/static/...' path into an absolute URL using request base URL.
+
+    Leaves already-absolute URLs unchanged.
+    """
+    if not path_or_url:
+        return path_or_url
+    if path_or_url.startswith("http://") or path_or_url.startswith("https://"):
+        return path_or_url
+    # Prefer configured public base URL (e.g., ngrok) when present
+    base = (s.public_base_url or str(request.base_url)).rstrip("/")
+    if not path_or_url.startswith("/"):
+        path_or_url = "/" + path_or_url
+    return base + path_or_url
 
 
 @app.get("/tts/diag")
@@ -125,10 +148,13 @@ def segment(req: SegmentRequest) -> SegmentResponse:
 
 
 @app.post("/generate_image", response_model=GenerateImageResponse)
-def generate_image(req: GenerateImageRequest) -> GenerateImageResponse:
+def generate_image(
+    req: GenerateImageRequest, request: Request
+) -> GenerateImageResponse:
     """Generate one test image from a prompt via Replicate/Flux."""
     try:
         url = generate_image_url(req.prompt, seed=req.seed)
+        url = _abs_url(request, url)
         return GenerateImageResponse(image_url=url)
     except BillingCreditError:
         raise HTTPException(
@@ -155,10 +181,16 @@ def generate_image(req: GenerateImageRequest) -> GenerateImageResponse:
 
 
 @app.post("/generate_visuals", response_model=GenerateVisualsResponse)
-async def generate_visuals(req: GenerateVisualsRequest) -> GenerateVisualsResponse:
+async def generate_visuals(
+    req: GenerateVisualsRequest, request: Request
+) -> GenerateVisualsResponse:
     """Full pipeline, selectable engine: LangGraph (default) or imperative fallback."""
     if s.pipeline_engine == "langgraph":
         scenes = await asyncio.to_thread(run_visuals_graph, req.text, req.max_scenes)
+        # Normalize image URLs to absolute
+        for scn in scenes:
+            if getattr(scn, "image_url", None):
+                scn.image_url = _abs_url(request, scn.image_url)  # type: ignore[attr-defined]
         # Generate a title for the full sequence
         try:
             title = chains.generate_title(req.text)
@@ -195,7 +227,7 @@ async def generate_visuals(req: GenerateVisualsRequest) -> GenerateVisualsRespon
 
     async def gen(scene: Scene) -> Scene:
         url = await asyncio.to_thread(generate_image_url, scene.prompt or "")
-        scene.image_url = url
+        scene.image_url = _abs_url(request, url)
         return scene
 
     semaphore = asyncio.Semaphore(s.max_concurrency)
@@ -212,23 +244,34 @@ async def generate_visuals(req: GenerateVisualsRequest) -> GenerateVisualsRespon
     "/generate_visuals_with_audio", response_model=GenerateVisualsWithAudioResponse
 )
 async def generate_visuals_with_audio(
-    req: GenerateVisualsRequest,
+    req: GenerateVisualsRequest, request: Request
 ) -> GenerateVisualsWithAudioResponse:
     """Run visuals pipeline, then synthesize TTS narration per scene.
 
     Returns scenes containing image_url plus audio_url and audio_duration_seconds.
     """
-    visuals = await generate_visuals(req)
+    visuals = await generate_visuals(req, request)
+
+    # Ensure image URLs are absolute for the frontend
+    for scn in visuals.scenes:
+        if scn.image_url:
+            scn.image_url = _abs_url(request, scn.image_url)
 
     async def enrich(scene: Scene) -> SceneWithAudio:
-        audio_url, duration = await tts_scene_summary(
-            scene.scene_id, scene.scene_summary
+        # Prefer original source sentences for TTS; fallback to scene summary
+        text_for_tts = (
+            "\n".join(scene.source_sentences)
+            if scene.source_sentences
+            else scene.scene_summary
         )
+        audio_url, duration = await tts_scene_summary(scene.scene_id, text_for_tts)
+        if audio_url:
+            audio_url = _abs_url(request, audio_url)
         return SceneWithAudio(
             scene_id=scene.scene_id,
             scene_summary=scene.scene_summary,
             prompt=scene.prompt,
-            image_url=scene.image_url,
+            image_url=_abs_url(request, scene.image_url) if scene.image_url else None,
             source_sentence_indices=scene.source_sentence_indices,
             source_sentences=scene.source_sentences,
             audio_url=audio_url,
@@ -244,7 +287,7 @@ async def generate_visuals_with_audio(
     response_model=GenerateVisualsSingleAudioResponse,
 )
 async def generate_visuals_single_audio(
-    req: GenerateVisualsRequest,
+    req: GenerateVisualsRequest, request: Request
 ) -> GenerateVisualsSingleAudioResponse:
     """Generate visuals once and produce a single merged audio with timestamped segments per scene.
 
@@ -255,12 +298,17 @@ async def generate_visuals_single_audio(
         - timeline: list of { scene_id, start_sec, duration_sec }
         - scenes: same scenes as /generate_visuals (no per-scene audio fields)
     """
-    visuals = await generate_visuals(req)
+    visuals = await generate_visuals(req, request)
 
     # Generate scene clips first (using same TTS engine), then merge
     files: List[tuple[int, str]] = []
     for scn in visuals.scenes:
-        url, _dur = await tts_scene_summary(scn.scene_id, scn.scene_summary)
+        text_for_tts = (
+            "\n".join(scn.source_sentences)
+            if scn.source_sentences
+            else scn.scene_summary
+        )
+        url, _dur = await tts_scene_summary(scn.scene_id, text_for_tts)
         if not url:
             continue
         fname = url.rsplit("/", 1)[-1]
@@ -275,6 +323,7 @@ async def generate_visuals_single_audio(
         concat_audios_with_timeline, files
     )
     audio_url = f"/static/audio/{os.path.basename(out_path)}"
+    audio_url = _abs_url(request, audio_url)
 
     segments: List[TimestampedAudioSegment] = [
         TimestampedAudioSegment(
@@ -300,6 +349,7 @@ def _sse(event: str, data: dict) -> str:
 
 @app.get("/generate_visuals_events")
 async def generate_visuals_events(
+    request: Request,
     text: str = Query(..., description="Input text to turn into visuals"),
     max_scenes: int = Query(8, ge=1, description="Max scenes to generate"),
 ):
@@ -354,7 +404,7 @@ async def generate_visuals_events(
                 yield _sse("image:started", {"scene_id": scn.scene_id})
                 try:
                     url = await asyncio.to_thread(generate_image_url, scn.prompt or "")
-                    scn.image_url = url
+                    scn.image_url = _abs_url(request, url)
                     logger.info("[SSE] image done scene=%s", scn.scene_id)
                     yield _sse(
                         "image:done",
@@ -396,6 +446,10 @@ async def generate_visuals_events(
                 title = chains.generate_title(text)
             except Exception:
                 title = None
+            # Normalize image URLs to absolute for SSE consumers
+            for it in payload:
+                if it.get("image_url"):
+                    it["image_url"] = _abs_url(request, it["image_url"])  # type: ignore
             yield _sse("complete", {"title": title, "scenes": payload})
         except Exception as e:
             logger.exception("[SSE] stream error")
@@ -409,27 +463,27 @@ async def generate_visuals_events(
 
 @app.post("/visuals_from_image_url", response_model=GenerateVisualsResponse)
 async def visuals_from_image_url(
-    req: VisualsFromImageURLRequest,
+    req: VisualsFromImageURLRequest, request: Request
 ) -> GenerateVisualsResponse:
     """Extract text from image URL via Vision, then run generate_visuals on the extracted text."""
     text = await asyncio.to_thread(
         extract_text_from_image_url, req.image_url, req.prompt_hint
     )
     return await generate_visuals(
-        GenerateVisualsRequest(text=text, max_scenes=req.max_scenes)
+        GenerateVisualsRequest(text=text, max_scenes=req.max_scenes), request
     )
 
 
 @app.post("/visuals_from_image_upload", response_model=VisualsFromImageUploadResponse)
 async def visuals_from_image_upload(
-    file: UploadFile = File(...), max_scenes: int = 8
+    request: Request, file: UploadFile = File(...), max_scenes: int = 8
 ) -> VisualsFromImageUploadResponse:
     """Accept an uploaded image, OCR it, then run generate_visuals on the extracted text."""
     data = await file.read()
     content_type = file.content_type or "image/png"
     text = await asyncio.to_thread(extract_text_from_image_bytes, content_type, data)
     result = await generate_visuals(
-        GenerateVisualsRequest(text=text, max_scenes=max_scenes)
+        GenerateVisualsRequest(text=text, max_scenes=max_scenes), request
     )
     return VisualsFromImageUploadResponse(extracted_text=text, result=result)
 

@@ -18,6 +18,8 @@ class Settings(BaseModel):
     api_prefix: str = Field(default="/api")
     cors_origins: List[str] = Field(default_factory=lambda: ["*"])
     cors_origin_regex: Optional[str] = Field(default=None)
+    # Optional public base URL to build absolute URLs (e.g., ngrok domain)
+    public_base_url: Optional[str] = Field(default=None)
 
     # LLM
     llm_provider: str = Field(default="openai")  # openai | anthropic (future)
@@ -36,6 +38,15 @@ class Settings(BaseModel):
         default=None
     )  # only used if aspect ratio not provided
     replicate_height: Optional[int] = Field(default=None)
+
+    # Image generation provider
+    #   - "replicate" (default)
+    #   - "openai" (uses OpenAI Images API with gpt-image-1)
+    image_provider: str = Field(default="replicate")
+    openai_image_model: str = Field(default="gpt-image-1")
+    # OpenAI Images supported sizes: '1024x1024', '1024x1536', '1536x1024', 'auto'
+    openai_image_size: str = Field(default="1536x1024")
+    images_output_dir: str = Field(default="/tmp/seequence_images")
 
     # Performance
     max_concurrency: int = Field(default=4)
@@ -83,6 +94,7 @@ def get_settings() -> Settings:
         api_prefix=api_prefix,
         cors_origins=cors_origins_list,
         cors_origin_regex=cors_origin_regex,
+        public_base_url=os.getenv("PUBLIC_BASE_URL"),
         llm_provider=os.getenv("LLM_PROVIDER", "openai"),
         llm_model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
@@ -98,6 +110,10 @@ def get_settings() -> Settings:
             if os.getenv("REPLICATE_HEIGHT")
             else None
         ),
+        image_provider=os.getenv("IMAGE_PROVIDER", "replicate"),
+        openai_image_model=os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1"),
+        openai_image_size=os.getenv("OPENAI_IMAGE_SIZE", "1536x1024"),
+        images_output_dir=os.getenv("IMAGES_OUTPUT_DIR", "/tmp/seequence_images"),
         max_concurrency=int(os.getenv("MAX_CONCURRENCY", "4")),
         style_guide=os.getenv("STYLE_GUIDE", None)
         or (
@@ -113,6 +129,11 @@ def get_settings() -> Settings:
     # Ensure TTS output dir exists
     try:
         os.makedirs(settings.tts_output_dir, exist_ok=True)
+    except Exception:
+        pass
+    # Ensure images output dir exists (for providers that save locally)
+    try:
+        os.makedirs(settings.images_output_dir, exist_ok=True)
     except Exception:
         pass
     return settings
