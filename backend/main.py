@@ -16,9 +16,27 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend import chains
 from backend.image_gen import generate_image_url
-from backend.models import (GenerateImageRequest, GenerateImageResponse,
-                            GenerateVisualsRequest, GenerateVisualsResponse,
-                            Scene, SegmentRequest, SegmentResponse)
+from backend.models import (
+    GenerateImageRequest,
+    GenerateImageResponse,
+    GenerateVisualsRequest,
+    GenerateVisualsResponse,
+    Scene,
+    SegmentRequest,
+    SegmentResponse,
+)
+from backend.settings import get_settings
+from backend import chains
+from backend.image_gen import generate_image_url
+from backend.models import (
+    GenerateImageRequest,
+    GenerateImageResponse,
+    GenerateVisualsRequest,
+    GenerateVisualsResponse,
+    Scene,
+    SegmentRequest,
+    SegmentResponse,
+)
 from backend.settings import get_settings
 
 s = get_settings()
@@ -44,7 +62,8 @@ def segment(req: SegmentRequest) -> SegmentResponse:
     """Split input text into coherent scenes using the LLM."""
     raw_scenes = chains.segment_text_into_scenes(req.text, req.max_scenes)
     scenes: List[Scene] = [
-        Scene(scene_id=s["scene_id"], scene_summary=s["scene_summary"]) for s in raw_scenes
+        Scene(scene_id=s["scene_id"], scene_summary=s["scene_summary"])
+        for s in raw_scenes
     ]
     return SegmentResponse(scenes=scenes)
 
@@ -66,7 +85,11 @@ async def generate_visuals(req: GenerateVisualsRequest) -> GenerateVisualsRespon
     for sdict in raw_scenes:
         prompt = chains.generate_visual_prompt(sdict["scene_summary"])
         scenes_with_prompts.append(
-            Scene(scene_id=sdict["scene_id"], scene_summary=sdict["scene_summary"], prompt=prompt)
+            Scene(
+                scene_id=sdict["scene_id"],
+                scene_summary=sdict["scene_summary"],
+                prompt=prompt,
+            )
         )
 
     # Parallelize image generation using asyncio.to_thread for the sync Replicate call
@@ -85,5 +108,5 @@ async def generate_visuals(req: GenerateVisualsRequest) -> GenerateVisualsRespon
     return GenerateVisualsResponse(scenes=list(results))
 
 
-# Uvicorn entrypoint hint: `uv run uvicorn main:app --reload --port 8000`
-
+# Run from repo root:
+#   uv run uvicorn backend.main:app --reload --port 8000
