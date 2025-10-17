@@ -43,6 +43,12 @@ class Settings(BaseModel):
     # Pipeline engine: 'langgraph' (graph-based) or 'imperative' (existing flow)
     pipeline_engine: str = Field(default="langgraph")
 
+    # TTS (Text-To-Speech)
+    tts_provider: str = Field(default="openai")  # openai (default)
+    tts_model: str = Field(default="gpt-4o-mini-tts")
+    tts_voice: str = Field(default="alloy")
+    tts_output_dir: str = Field(default="/tmp/seequence_audio")
+
 
 def _parse_list(value: Optional[str]) -> List[str]:
     if not value:
@@ -64,7 +70,7 @@ def get_settings() -> Settings:
     if cors_origin_regex:
         cors_origins_list = []
 
-    return Settings(
+    settings = Settings(
         environment=env,
         api_prefix=api_prefix,
         cors_origins=cors_origins_list,
@@ -82,4 +88,14 @@ def get_settings() -> Settings:
             "soft lighting; clean composition; avoid text overlays and watermarks; maintain consistent characters/props across scenes."
         ),
         pipeline_engine=os.getenv("PIPELINE_ENGINE", "langgraph"),
+        tts_provider=os.getenv("TTS_PROVIDER", "openai"),
+        tts_model=os.getenv("TTS_MODEL", "gpt-4o-mini-tts"),
+        tts_voice=os.getenv("TTS_VOICE", "alloy"),
+        tts_output_dir=os.getenv("TTS_OUTPUT_DIR", "/tmp/seequence_audio"),
     )
+    # Ensure TTS output dir exists
+    try:
+        os.makedirs(settings.tts_output_dir, exist_ok=True)
+    except Exception:
+        pass
+    return settings

@@ -52,3 +52,4 @@ yarn-error.log*
 pnpm-debug.log*
 # 
 .env
+static/audio/

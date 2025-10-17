@@ -44,6 +44,17 @@ class GenerateVisualsResponse(BaseModel):
     scenes: List[Scene]
 
 
+class SceneWithAudio(Scene):
+    """Scene enriched with TTS narration metadata."""
+
+    audio_url: Optional[str] = None
+    audio_duration_seconds: Optional[float] = None
+
+
+class GenerateVisualsWithAudioResponse(BaseModel):
+    scenes: List[SceneWithAudio]
+
+
 # OCR-driven flows
 class VisualsFromImageURLRequest(BaseModel):
     image_url: str

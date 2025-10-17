@@ -52,6 +52,32 @@ FastAPI backend that turns text into a sequence of AI-generated images using GPT
          -H "Content-Type: application/json" \
          -d '{"text":"The Earth orbits the Sun, and the Moon orbits the Earth. Day and night are caused by Earth\'s rotation.","max_scenes":3}'
       ```
+  - `POST /generate_visuals_with_audio` → same as above, but each scene also has `audio_url` and `audio_duration_seconds` for slide sync.
+    - Example:
+      ```bash
+      curl -X POST http://127.0.0.1:8000/generate_visuals_with_audio \
+         -H "Content-Type: application/json" \
+         -d '{"text":"A happy cat plays with yarn in a sunny room.","max_scenes":2}'
+      ```
+      Response (excerpt):
+      ```json
+      {
+        "scenes": [
+          {
+            "scene_id": 1,
+            "scene_summary": "...",
+            "prompt": "...",
+            "image_url": "https://replicate.delivery/...jpg",
+            "audio_url": "/static/audio/scene_1_alloy_1739746570123.wav",
+            "audio_duration_seconds": 4.27
+          },
+          { "scene_id": 2, "audio_url": "/static/audio/...", "audio_duration_seconds": 3.91 }
+        ]
+      }
+      ```
+      - The `audio_url` is a path served by this backend. In the frontend, prefix it with your API base URL (e.g., `https://<your-ngrok-domain>`):
+        - Browser example: `new Audio(`${API_BASE}${scene.audio_url}`)`
+      - Use `audio_duration_seconds` to time each slide to the narration length.
 
 - OCR only (Image → Text)
 
@@ -101,3 +127,4 @@ Notes:
   - `STYLE_GUIDE` (global visual tone)
   - `PIPELINE_ENGINE=langgraph|imperative`
   - `CORS_ORIGINS` or `CORS_ORIGIN_REGEX` (use regex for dynamic ngrok URLs)
+  - TTS: `TTS_PROVIDER` (default `openai`), `TTS_MODEL` (default `gpt-4o-mini-tts`), `TTS_VOICE` (default `alloy`), `TTS_OUTPUT_DIR` (default `/tmp/seequence_audio`)
