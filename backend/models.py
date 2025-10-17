@@ -1,0 +1,40 @@
+"""Pydantic request/response models for the Seequence backend."""
+from __future__ import annotations
+
+from typing import List, Optional
+
+from pydantic import BaseModel, conint
+
+
+class SegmentRequest(BaseModel):
+    text: str
+    max_scenes: conint(ge=1) = 8  # type: ignore[name-defined]
+
+
+class Scene(BaseModel):
+    scene_id: int
+    scene_summary: str
+    prompt: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+class SegmentResponse(BaseModel):
+    scenes: List[Scene]
+
+
+class GenerateImageRequest(BaseModel):
+    prompt: str
+    seed: Optional[int] = None
+
+
+class GenerateImageResponse(BaseModel):
+    image_url: str
+
+
+class GenerateVisualsRequest(BaseModel):
+    text: str
+    max_scenes: int = 8
+
+
+class GenerateVisualsResponse(BaseModel):
+    scenes: List[Scene]
