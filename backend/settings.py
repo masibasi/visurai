@@ -55,11 +55,20 @@ def get_settings() -> Settings:
     # Load .env if present
     load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
+    # Base values
+    env = os.getenv("ENVIRONMENT", "local")
+    api_prefix = os.getenv("API_PREFIX", "/api")
+    cors_origin_regex = os.getenv("CORS_ORIGIN_REGEX")
+    cors_origins_list = _parse_list(os.getenv("CORS_ORIGINS"))
+    # If a regex is provided, prefer it and avoid using '*' with credentials
+    if cors_origin_regex:
+        cors_origins_list = []
+
     return Settings(
-        environment=os.getenv("ENVIRONMENT", "local"),
-        api_prefix=os.getenv("API_PREFIX", "/api"),
-        cors_origins=_parse_list(os.getenv("CORS_ORIGINS")),
-        cors_origin_regex=os.getenv("CORS_ORIGIN_REGEX"),
+        environment=env,
+        api_prefix=api_prefix,
+        cors_origins=cors_origins_list,
+        cors_origin_regex=cors_origin_regex,
         llm_provider=os.getenv("LLM_PROVIDER", "openai"),
         llm_model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
