@@ -11,11 +11,12 @@ Endpoints:
 import asyncio
 from typing import List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from tenacity import RetryError
 
 from backend import chains
-from backend.image_gen import generate_image_url
+from backend.image_gen import BillingCreditError, generate_image_url
 from backend.models import (
     GenerateImageRequest,
     GenerateImageResponse,
@@ -26,7 +27,6 @@ from backend.models import (
     SegmentResponse,
 )
 from backend.settings import get_settings
-from fastapi import HTTPException
 
 s = get_settings()
 app = FastAPI(title="Seequence Backend", version="0.1.0")
@@ -62,13 +62,29 @@ def generate_image(req: GenerateImageRequest) -> GenerateImageResponse:
     """Generate one test image from a prompt via Replicate/Flux."""
     try:
         url = generate_image_url(req.prompt, seed=req.seed)
+        return GenerateImageResponse(image_url=url)
+    except BillingCreditError:
+        raise HTTPException(
+            status_code=402,
+            detail="Replicate credit is insufficient. Please top up.",
+        )
+    except RetryError as e:
+        cause = e.last_attempt.exception() if hasattr(e, "last_attempt") else None
+        msg = str(cause or e)
+        if msg and "insufficient credit" in msg.lower():
+            raise HTTPException(
+                status_code=402,
+                detail="Replicate credit is insufficient. Please top up.",
+            )
+        raise HTTPException(status_code=502, detail=f"Image generation failed: {msg}")
     except RuntimeError as e:
         msg = str(e)
         if "insufficient credit" in msg.lower():
-            # 402 Payment Required (mapped to 400 for broader client compatibility if needed)
-            raise HTTPException(status_code=402, detail="Replicate credit is insufficient. Please top up.")
+            raise HTTPException(
+                status_code=402,
+                detail="Replicate credit is insufficient. Please top up.",
+            )
         raise HTTPException(status_code=502, detail=f"Image generation failed: {msg}")
-    return GenerateImageResponse(image_url=url)
 
 
 @app.post("/generate_visuals", response_model=GenerateVisualsResponse)

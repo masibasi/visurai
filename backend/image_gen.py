@@ -2,16 +2,21 @@
 
 Wraps the Replicate client and exposes an async-friendly function to generate a single image URL.
 """
+
 from __future__ import annotations
 
 import os
 from typing import Optional
 
 import replicate
-from tenacity import retry, stop_after_attempt, wait_exponential
 from replicate.exceptions import ReplicateError
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from .settings import get_settings
+
+
+class BillingCreditError(RuntimeError):
+    """Raised when Replicate returns a billing/credit error (402)."""
 
 
 def _get_replicate_client() -> replicate.Client:
@@ -22,7 +27,11 @@ def _get_replicate_client() -> replicate.Client:
     return replicate.Client(api_token=token)
 
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=20), stop=stop_after_attempt(3))
+@retry(
+    wait=wait_exponential(multiplier=1, min=2, max=20),
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception(lambda e: not isinstance(e, BillingCreditError)),
+)
 def generate_image_url(prompt: str, seed: Optional[int] = None) -> str:
     """Generate a single image from a prompt and return the image URL."""
     s = get_settings()
@@ -45,7 +54,7 @@ def generate_image_url(prompt: str, seed: Optional[int] = None) -> str:
         # Surface common billing/auth issues with clear messages
         msg = str(e)
         if "Insufficient credit" in msg or "status: 402" in msg:
-            raise RuntimeError(
+            raise BillingCreditError(
                 "Replicate billing: insufficient credit. Please add credit to your Replicate account."
             )
         raise
@@ -60,7 +69,12 @@ def generate_image_url(prompt: str, seed: Optional[int] = None) -> str:
         for v in output.values():
             if isinstance(v, str) and v.startswith("http"):
                 return v
-            if isinstance(v, list) and v and isinstance(v[0], str) and v[0].startswith("http"):
+            if (
+                isinstance(v, list)
+                and v
+                and isinstance(v[0], str)
+                and v[0].startswith("http")
+            ):
                 return v[0]
     raise RuntimeError(f"Unexpected Replicate output format: {type(output)}")
 
