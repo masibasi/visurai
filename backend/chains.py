@@ -26,18 +26,18 @@ def _get_llm() -> ChatOpenAI:
 def segment_text_into_scenes(text: str, max_scenes: int = 8) -> List[dict]:
     """Split the input text into coherent visual scenes.
 
-    Returns a list of dicts with keys: scene_id, scene_summary.
+    Returns a list of dicts with keys: scene_id, scene_summary, source_sentence_indices, source_sentences.
     """
     llm = _get_llm()
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
-                "You are a skilled story editor for visual learners. Split the user's text into at most {max_scenes} clear story beats. Each beat should be a short, concrete scene that is visually depictable.",
+                "You are a skilled story editor for visual learners. Split the user's text into at most {max_scenes} clear story beats. Each beat should be a short, concrete scene that is visually depictable. Also, for each scene, list which original sentences (by 1-based index) you used and include their exact text snippets.",
             ),
             (
                 "user",
-                "Text:\n\n{text}\n\nRespond as a JSON array of objects with fields: scene_id (1-based) and scene_summary (<= 30 words).",
+                "Text:\n\n{text}\n\nRespond as a JSON array of objects with fields: scene_id (1-based), scene_summary (<= 30 words), source_sentence_indices (array of 1-based integers), source_sentences (array of strings).",
             ),
         ]
     )
@@ -61,7 +61,16 @@ def segment_text_into_scenes(text: str, max_scenes: int = 8) -> List[dict]:
     scenes: List[dict] = []
     for i, item in enumerate(data, start=1):
         summary = item.get("scene_summary") or item.get("summary") or str(item)
-        scenes.append({"scene_id": i, "scene_summary": summary})
+        indices = item.get("source_sentence_indices") or item.get("source_indices") or []
+        sentences = item.get("source_sentences") or item.get("sources") or []
+        scenes.append(
+            {
+                "scene_id": i,
+                "scene_summary": summary,
+                "source_sentence_indices": indices,
+                "source_sentences": sentences,
+            }
+        )
     return scenes[:max_scenes]
 
 

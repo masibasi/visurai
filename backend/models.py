@@ -16,6 +16,9 @@ class Scene(BaseModel):
     scene_summary: str
     prompt: Optional[str] = None
     image_url: Optional[str] = None
+    # References to the original input sentences that this scene is based on
+    source_sentence_indices: Optional[List[int]] = None
+    source_sentences: Optional[List[str]] = None
 
 
 class SegmentResponse(BaseModel):

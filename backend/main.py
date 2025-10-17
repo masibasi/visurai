@@ -51,7 +51,12 @@ def segment(req: SegmentRequest) -> SegmentResponse:
     """Split input text into coherent scenes using the LLM."""
     raw_scenes = chains.segment_text_into_scenes(req.text, req.max_scenes)
     scenes: List[Scene] = [
-        Scene(scene_id=s["scene_id"], scene_summary=s["scene_summary"])
+        Scene(
+            scene_id=s["scene_id"],
+            scene_summary=s["scene_summary"],
+            source_sentence_indices=s.get("source_sentence_indices"),
+            source_sentences=s.get("source_sentences"),
+        )
         for s in raw_scenes
     ]
     return SegmentResponse(scenes=scenes)
@@ -100,6 +105,8 @@ async def generate_visuals(req: GenerateVisualsRequest) -> GenerateVisualsRespon
             Scene(
                 scene_id=sdict["scene_id"],
                 scene_summary=sdict["scene_summary"],
+                source_sentence_indices=sdict.get("source_sentence_indices"),
+                source_sentences=sdict.get("source_sentences"),
                 prompt=prompt,
             )
         )

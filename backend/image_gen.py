@@ -10,6 +10,7 @@ from typing import Optional
 
 import replicate
 from replicate.exceptions import ReplicateError
+from replicate.helpers import FileOutput
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from .settings import get_settings
@@ -45,10 +46,12 @@ def generate_image_url(prompt: str, seed: Optional[int] = None) -> str:
         input_payload["seed"] = seed
 
     try:
+        # Prefer URL results over local file outputs
         output = client.run(
             s.replicate_model,
             input=input_payload,
             timeout=s.replicate_timeout_seconds,
+            use_file_output=False,
         )
     except ReplicateError as e:
         # Surface common billing/auth issues with clear messages
@@ -59,9 +62,25 @@ def generate_image_url(prompt: str, seed: Optional[int] = None) -> str:
             )
         raise
 
-    # Replicate may return a list of URLs or an object; normalize.
+    # Replicate may return a list of URLs/FileOutputs or a single object; normalize.
     if isinstance(output, list) and output:
-        return str(output[0])
+        first = output[0]
+        if isinstance(first, str) and first.startswith("http"):
+            return first
+        if isinstance(first, FileOutput):
+            if getattr(first, "url", None):
+                return first.url  # type: ignore[attr-defined]
+            if getattr(first, "path", None):
+                # Fallback: local file path; not ideal for clients, but better than failing
+                return f"file://{first.path}"
+        # Try generic extraction from list
+        for v in output:
+            if isinstance(v, str) and v.startswith("http"):
+                return v
+            if isinstance(v, dict):
+                for vv in v.values():
+                    if isinstance(vv, str) and vv.startswith("http"):
+                        return vv
     if isinstance(output, str):
         return output
     # Fallback: try to extract URL from dict
@@ -72,10 +91,18 @@ def generate_image_url(prompt: str, seed: Optional[int] = None) -> str:
             if (
                 isinstance(v, list)
                 and v
-                and isinstance(v[0], str)
-                and v[0].startswith("http")
+                and (
+                    (isinstance(v[0], str) and v[0].startswith("http"))
+                    or (isinstance(v[0], FileOutput) and getattr(v[0], "url", None))
+                )
             ):
-                return v[0]
+                return v[0] if isinstance(v[0], str) else v[0].url  # type: ignore[attr-defined]
+    # Single FileOutput
+    if isinstance(output, FileOutput):
+        if getattr(output, "url", None):
+            return output.url  # type: ignore[attr-defined]
+        if getattr(output, "path", None):
+            return f"file://{output.path}"
     raise RuntimeError(f"Unexpected Replicate output format: {type(output)}")
 
 
