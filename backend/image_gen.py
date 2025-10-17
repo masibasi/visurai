@@ -9,6 +9,7 @@ from typing import Optional
 
 import replicate
 from tenacity import retry, stop_after_attempt, wait_exponential
+from replicate.exceptions import ReplicateError
 
 from .settings import get_settings
 
@@ -34,11 +35,20 @@ def generate_image_url(prompt: str, seed: Optional[int] = None) -> str:
     if seed is not None:
         input_payload["seed"] = seed
 
-    output = client.run(
-        s.replicate_model,
-        input=input_payload,
-        timeout=s.replicate_timeout_seconds,
-    )
+    try:
+        output = client.run(
+            s.replicate_model,
+            input=input_payload,
+            timeout=s.replicate_timeout_seconds,
+        )
+    except ReplicateError as e:
+        # Surface common billing/auth issues with clear messages
+        msg = str(e)
+        if "Insufficient credit" in msg or "status: 402" in msg:
+            raise RuntimeError(
+                "Replicate billing: insufficient credit. Please add credit to your Replicate account."
+            )
+        raise
 
     # Replicate may return a list of URLs or an object; normalize.
     if isinstance(output, list) and output:
@@ -53,3 +63,15 @@ def generate_image_url(prompt: str, seed: Optional[int] = None) -> str:
             if isinstance(v, list) and v and isinstance(v[0], str) and v[0].startswith("http"):
                 return v[0]
     raise RuntimeError(f"Unexpected Replicate output format: {type(output)}")
+
+
+def can_generate_images() -> bool:
+    """Best-effort probe: checks whether Replicate client is configured.
+
+    Does not run a paid prediction; only verifies token presence.
+    """
+    try:
+        _ = _get_replicate_client()
+        return True
+    except Exception:
+        return False

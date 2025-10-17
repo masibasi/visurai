@@ -26,18 +26,7 @@ from backend.models import (
     SegmentResponse,
 )
 from backend.settings import get_settings
-from backend import chains
-from backend.image_gen import generate_image_url
-from backend.models import (
-    GenerateImageRequest,
-    GenerateImageResponse,
-    GenerateVisualsRequest,
-    GenerateVisualsResponse,
-    Scene,
-    SegmentRequest,
-    SegmentResponse,
-)
-from backend.settings import get_settings
+from fastapi import HTTPException
 
 s = get_settings()
 app = FastAPI(title="Seequence Backend", version="0.1.0")
@@ -71,7 +60,14 @@ def segment(req: SegmentRequest) -> SegmentResponse:
 @app.post("/generate_image", response_model=GenerateImageResponse)
 def generate_image(req: GenerateImageRequest) -> GenerateImageResponse:
     """Generate one test image from a prompt via Replicate/Flux."""
-    url = generate_image_url(req.prompt, seed=req.seed)
+    try:
+        url = generate_image_url(req.prompt, seed=req.seed)
+    except RuntimeError as e:
+        msg = str(e)
+        if "insufficient credit" in msg.lower():
+            # 402 Payment Required (mapped to 400 for broader client compatibility if needed)
+            raise HTTPException(status_code=402, detail="Replicate credit is insufficient. Please top up.")
+        raise HTTPException(status_code=502, detail=f"Image generation failed: {msg}")
     return GenerateImageResponse(image_url=url)
 
 
