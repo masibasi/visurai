@@ -47,6 +47,10 @@ Paste any text and get:
 ---
 
 ## Architecture
+<img width="1053" height="594" alt="image" src="https://github.com/user-attachments/assets/81160799-431f-4d89-91fb-d1dc3e644b7e" />
+
+<img width="1050" height="587" alt="image" src="https://github.com/user-attachments/assets/5366b2f8-8c8e-459c-9d6b-52724f746053" />
+
 
 ```
 Text / Image → OCR (optional)
