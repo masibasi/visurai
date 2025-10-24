@@ -577,8 +577,13 @@ async def generate_visuals_events(
             payload = [
                 {
                     "scene_id": scn.scene_id,
-                    "image_url": scn.image_url,
+                    "scene_summary": scn.scene_summary,
                     "prompt": scn.prompt,
+                    "image_url": scn.image_url,
+                    "source_sentence_indices": getattr(
+                        scn, "source_sentence_indices", None
+                    ),
+                    "source_sentences": getattr(scn, "source_sentences", None),
                 }
                 for scn in scenes
             ]
@@ -768,8 +773,13 @@ async def generate_visuals_single_audio_events(
             payload = [
                 {
                     "scene_id": scn.scene_id,
-                    "image_url": scn.image_url,
+                    "scene_summary": scn.scene_summary,
                     "prompt": scn.prompt,
+                    "image_url": scn.image_url,
+                    "source_sentence_indices": getattr(
+                        scn, "source_sentence_indices", None
+                    ),
+                    "source_sentences": getattr(scn, "source_sentences", None),
                 }
                 for scn in scenes
             ]

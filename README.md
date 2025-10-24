@@ -5,20 +5,20 @@
 🏆 Built at the Good Vibes Only AI/ML Buildathon @ USC (2025)
 
 ---
+
 ## Service Link
+
 https://visurai-story-maker.lovable.app/
 
 ## Overview
+
 Project Demo : https://drive.google.com/file/d/16_YFVfVJoDPQqLkXXaRXSv_Dyr98bxey/view?usp=sharing
 
-<img width="1097" height="795" alt="image" src="https://github.com/user-attachments/assets/f395581c-5f30-4da4-bb15-2092082983a7" />
-----
-<img width="1357" height="884" alt="image" src="https://github.com/user-attachments/assets/9aabb1a4-7c41-40da-902a-eb2e16879644" />
-----
+## <img width="1097" height="795" alt="image" src="https://github.com/user-attachments/assets/f395581c-5f30-4da4-bb15-2092082983a7" />
+
+## <img width="1357" height="884" alt="image" src="https://github.com/user-attachments/assets/9aabb1a4-7c41-40da-902a-eb2e16879644" />
+
 <img width="1661" height="737" alt="image" src="https://github.com/user-attachments/assets/b3e0a57f-4a57-4ed3-8f5b-dbcdfdbaebfc" />
-
-
-
 
 Visurai helps dyslexic and visual learners comprehend material by converting text into a sequence of AI-generated images with optional narration.
 
@@ -47,10 +47,10 @@ Paste any text and get:
 ---
 
 ## Architecture
+
 <img width="1053" height="594" alt="image" src="https://github.com/user-attachments/assets/81160799-431f-4d89-91fb-d1dc3e644b7e" />
 
 <img width="1050" height="587" alt="image" src="https://github.com/user-attachments/assets/5366b2f8-8c8e-459c-9d6b-52724f746053" />
-
 
 ```
 Text / Image → OCR (optional)
@@ -211,6 +211,189 @@ Endpoints are the same (e.g., `POST /generate_visuals`), but execution uses the 
 - POST `/visuals_from_image_url` and `/visuals_from_image_upload` → OCR then visuals
 
 ---
+
+## API Reference
+
+Below is a concise reference of the backend API: inputs, outputs, and example usage. All JSON responses use UTF‑8 and stable keys. When `PUBLIC_BASE_URL` is configured, media paths (e.g., `/static/...`) are returned as absolute URLs.
+
+### Health
+
+- GET `/health`
+  - Response: `{ "status": "ok" }`
+
+### Segment text into scenes
+
+- POST `/segment`
+  - Body: `{ text: string, max_scenes?: number }`
+  - Response: `{ scenes: Array<{ scene_id: number, scene_summary: string, source_sentence_indices?: number[], source_sentences?: string[] }> }`
+
+### Generate one image (test)
+
+- POST `/generate_image`
+  - Body: `{ prompt: string, seed?: number }`
+  - Response: `{ image_url: string }` (absolute if `PUBLIC_BASE_URL` set)
+
+### Full pipeline: text → images
+
+- POST `/generate_visuals`
+  - Body: `{ text: string, max_scenes?: number }`
+  - Response: `{ title?: string, scenes: Array<{ scene_id, scene_summary, prompt, image_url, source_sentence_indices?, source_sentences? }> }`
+
+### Full pipeline + per‑scene TTS
+
+- POST `/generate_visuals_with_audio`
+  - Body: `{ text: string, max_scenes?: number }`
+  - Response: `{ title?: string, scenes: Array<{ scene_id, scene_summary, prompt, image_url, source_sentence_indices?, source_sentences?, audio_url, audio_duration_seconds }> }`
+  - Notes: `audio_url` points to `/static/audio/...`; duration is seconds (float).
+
+### Full pipeline + single merged audio
+
+- POST `/generate_visuals_single_audio`
+  - Body: `{ text: string, max_scenes?: number }`
+  - Response: `{ title?: string, scenes: Array<{ scene_id, scene_summary, prompt, image_url, source_sentence_indices?, source_sentences? }>, audio_url: string, duration_seconds: number, timeline: Array<{ scene_id: number, start_sec: number, duration_sec: number }> }`
+  - Notes: merged MP3 generated with ffmpeg concat demuxer.
+
+### Progress (SSE) — images only
+
+- GET `/generate_visuals_events?text=...&max_scenes=8`
+  - Event stream content‑type: `text/event-stream`
+  - Events (event name → data JSON):
+    - `started` → `{ message: "begin" }`
+    - `segmented` → `{ count: number }`
+    - `summarized` → `{ has_summary: boolean }`
+    - `prompt` → `{ scene_id, prompt }`
+    - `image:started` → `{ scene_id }`
+    - `image:done` → `{ scene_id, image_url }`
+    - `complete` → `{ title?: string, scenes: Array<{ scene_id, scene_summary, prompt, image_url, source_sentence_indices?, source_sentences? }> }`
+  - Tip: With ngrok, append `?ngrok-skip-browser-warning=true` to the URL to avoid the interstitial for EventSource.
+
+### Progress (SSE) — images + per‑scene TTS + merged audio
+
+- GET `/generate_visuals_single_audio_events?text=...&max_scenes=8`
+  - Events:
+    - `started`, `segmented`, `summarized`, `prompt`, `image:started`, `image:done`
+    - `tts:started` → `{ scene_id }`
+    - `tts:done` → `{ scene_id, audio_url, duration_sec }`
+    - `tts:merge_started` → `{ count }`
+    - `tts:merge_done` → `{ audio_url, duration_seconds, timeline }`
+    - `complete` → `{ title?: string, scenes: Array<{ scene_id, scene_summary, prompt, image_url, source_sentence_indices?, source_sentences? }>, audio_url, duration_seconds, timeline }`
+
+### OCR only (image → text)
+
+- POST `/ocr_from_image_url`
+  - Body: `{ image_url: string, prompt_hint?: string }`
+  - Response: `{ extracted_text: string }`
+- POST `/ocr_from_image_upload` (multipart)
+  - Form: `file=@path/to/img`, content‑type `multipart/form-data`
+  - Response: `{ extracted_text: string }`
+
+### One‑shot: image → OCR → visuals
+
+- POST `/visuals_from_image_url`
+  - Body: `{ image_url: string, max_scenes?: number, prompt_hint?: string }`
+  - Response: `{ scenes: [...] }` (same shape as `/generate_visuals`)
+- POST `/visuals_from_image_upload` (multipart)
+  - Form: `file=@path`, `max_scenes?`
+  - Response: `{ extracted_text: string, result: { title?: string, scenes: [...] } }`
+
+### Debug utilities (optional)
+
+- GET `/tts/diag` → `{ mutagen: boolean, tinytag: boolean, tts_output_dir: string }`
+- GET `/tts/duration?file=<name>` → `{ file, exists, duration, size }`
+- GET `/debug/audio_info?file=<name>` → `{ file, exists, size, mtime, path, public_url, public_base_url }`
+- GET `/debug/audios` → `{ count, items: Array<{ file, size, mtime, url }> }` (latest first)
+- GET `/debug/images` → `{ count, items: Array<{ file, size, mtime, url }> }` (latest first)
+- GET `/debug/storage` → summary of media dirs, counts, and public mounts
+
+---
+
+## Examples
+
+The snippets below assume the API is running at `http://127.0.0.1:8000`. If you exposed it via ngrok, replace with your `PUBLIC_BASE_URL`.
+
+### 1) One image (curl)
+
+```bash
+curl -sS http://127.0.0.1:8000/generate_image \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Clean educational infographic showing 1 AU ≈ 1.496e8 km. Label Earth and Sun. High contrast.",
+    "seed": 42
+  }'
+```
+
+### 2) Full pipeline (POST)
+
+```bash
+curl -sS http://127.0.0.1:8000/generate_visuals \
+  -H "Content-Type: application/json" \
+  -d '{ "text": "The Sun is a G-type star...", "max_scenes": 5 }'
+```
+
+### 3) Full pipeline + per‑scene TTS (POST)
+
+```bash
+curl -sS http://127.0.0.1:8000/generate_visuals_with_audio \
+  -H "Content-Type: application/json" \
+  -d '{ "text": "The Sun is a G-type star...", "max_scenes": 5 }'
+```
+
+### 4) Full pipeline + single merged audio (POST)
+
+```bash
+curl -sS http://127.0.0.1:8000/generate_visuals_single_audio \
+  -H "Content-Type: application/json" \
+  -d '{ "text": "The Sun is a G-type star...", "max_scenes": 5 }'
+```
+
+### 5) SSE: images only (curl)
+
+```bash
+# -N disables buffering to stream events as they arrive
+curl -N "http://127.0.0.1:8000/generate_visuals_events?text=The%20Sun%20is%20a%20G-type%20star...&max_scenes=5"
+```
+
+### 6) SSE: images + per‑scene TTS + merged audio (curl)
+
+```bash
+curl -N "http://127.0.0.1:8000/generate_visuals_single_audio_events?text=The%20Sun%20is%20a%20G-type%20star...&max_scenes=5"
+```
+
+### 7) OCR (curl)
+
+```bash
+# From a public image URL
+curl -sS http://127.0.0.1:8000/ocr_from_image_url \
+  -H "Content-Type: application/json" \
+  -d '{ "image_url": "https://example.com/page.png", "prompt_hint": "School lecture page" }'
+
+# Upload a local image file
+curl -sS -X POST http://127.0.0.1:8000/ocr_from_image_upload \
+  -F file=@/path/to/page.png
+```
+
+### 8) One‑shot: image → OCR → visuals (curl)
+
+```bash
+curl -sS http://127.0.0.1:8000/visuals_from_image_url \
+  -H "Content-Type: application/json" \
+  -d '{ "image_url": "https://example.com/page.png", "max_scenes": 5 }'
+
+curl -sS -X POST http://127.0.0.1:8000/visuals_from_image_upload \
+  -F file=@/path/to/page.png \
+  -F max_scenes=5
+```
+
+### 9) Debug helpers (curl)
+
+```bash
+curl -sS http://127.0.0.1:8000/tts/diag
+curl -sS "http://127.0.0.1:8000/tts/duration?file=scene_1_alloy_xxx.mp3"
+curl -sS "http://127.0.0.1:8000/debug/audio_info?file=scene_1_alloy_xxx.mp3"
+curl -sS http://127.0.0.1:8000/debug/audios
+curl -sS http://127.0.0.1:8000/debug/images
+curl -sS http://127.0.0.1:8000/debug/storage
+```
 
 ## Troubleshooting
 
