@@ -52,4 +52,10 @@ yarn-error.log*
 pnpm-debug.log*
 # 
 .env
+
+# Generated media (do not commit)
 static/audio/
+static/images/
+backend/.data/
+backend/static/audio/
+backend/static/images/

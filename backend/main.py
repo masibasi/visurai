@@ -138,6 +138,7 @@ def debug_audio_info(file: str, request: Request) -> dict:
     Returns existence, size, mtime, absolute path, and the public URL used by clients.
     """
     import os as _os
+
     fname = _os.path.basename(file)
     path = _os.path.join(s.tts_output_dir, fname)
     exists = _os.path.exists(path)
@@ -159,6 +160,116 @@ def debug_audio_info(file: str, request: Request) -> dict:
         "public_url": public_url,
         "public_base_url": s.public_base_url,
     }
+
+
+@app.get("/debug/audios")
+def debug_list_audios(request: Request, limit: int = 50) -> dict:
+    """List audio files in the TTS output dir with absolute URLs (most recent first)."""
+    import os as _os
+    from pathlib import Path
+
+    base = Path(s.tts_output_dir)
+    if not base.exists():
+        return {"count": 0, "items": []}
+    items = []
+    for p in base.glob("*"):
+        if p.is_file() and p.suffix.lower() in {".mp3", ".wav", ".m4a", ".aac"}:
+            try:
+                stat = p.stat()
+                rel = p.name
+                url = _abs_url(request, f"/static/audio/{rel}")
+                items.append(
+                    {
+                        "file": rel,
+                        "size": stat.st_size,
+                        "mtime": stat.st_mtime,
+                        "url": url,
+                    }
+                )
+            except Exception:
+                continue
+    items.sort(key=lambda x: x["mtime"], reverse=True)
+    return {"count": len(items), "items": items[: max(1, min(limit, 500))]}
+
+
+@app.get("/debug/storage")
+def debug_storage(request: Request) -> dict:
+    """Report storage locations and summary for audio/images and their public mounts."""
+    from pathlib import Path
+
+    audio_dir = Path(s.tts_output_dir)
+    image_dir = Path(s.images_output_dir)
+    audio_count = (
+        len(
+            [
+                p
+                for p in audio_dir.glob("*")
+                if p.is_file() and p.suffix.lower() in {".mp3", ".wav", ".m4a", ".aac"}
+            ]
+        )
+        if audio_dir.exists()
+        else 0
+    )
+    image_count = (
+        len(
+            [
+                p
+                for p in image_dir.glob("*")
+                if p.is_file()
+                and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+            ]
+        )
+        if image_dir.exists()
+        else 0
+    )
+    return {
+        "public_base_url": s.public_base_url,
+        "audio": {
+            "filesystem_path": str(audio_dir),
+            "exists": audio_dir.exists(),
+            "count": audio_count,
+            "static_mount": "/static/audio",
+            "browse": _abs_url(request, "/debug/audios"),
+        },
+        "images": {
+            "filesystem_path": str(image_dir),
+            "exists": image_dir.exists(),
+            "count": image_count,
+            "static_mount": "/static/images",
+            "browse": _abs_url(request, "/debug/images"),
+            "note": "Images are saved locally when image_provider='openai'. For 'replicate', images are typically remote URLs unless caching is enabled.",
+        },
+    }
+
+
+@app.get("/debug/images")
+def debug_list_images(request: Request, limit: int = 50) -> dict:
+    """List files in the images output dir with absolute URLs (most recent first)."""
+    import os as _os
+    from pathlib import Path
+
+    base = Path(s.images_output_dir)
+    if not base.exists():
+        return {"count": 0, "items": []}
+    items = []
+    for p in base.glob("*"):
+        if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+            try:
+                stat = p.stat()
+                rel = p.name
+                url = _abs_url(request, f"/static/images/{rel}")
+                items.append(
+                    {
+                        "file": rel,
+                        "size": stat.st_size,
+                        "mtime": stat.st_mtime,
+                        "url": url,
+                    }
+                )
+            except Exception:
+                continue
+    items.sort(key=lambda x: x["mtime"], reverse=True)
+    return {"count": len(items), "items": items[: max(1, min(limit, 500))]}
 
 
 @app.post("/segment", response_model=SegmentResponse)
@@ -483,6 +594,204 @@ async def generate_visuals_events(
             yield _sse("complete", {"title": title, "scenes": payload})
         except Exception as e:
             logger.exception("[SSE] stream error")
+            yield _sse("error", {"message": str(e)})
+
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    return StreamingResponse(
+        event_gen(), media_type="text/event-stream", headers=headers
+    )
+
+
+@app.get("/generate_visuals_single_audio_events")
+async def generate_visuals_single_audio_events(
+    request: Request,
+    text: str = Query(
+        ..., description="Input text to turn into visuals + single audio"
+    ),
+    max_scenes: int = Query(8, ge=1, description="Max scenes to generate"),
+):
+    """Stream progress for visuals generation plus TTS per-scene and final merged audio.
+
+    Events:
+      - started
+      - segmented { count }
+      - summarized { has_summary }
+      - prompt { scene_id, prompt }
+      - image:started { scene_id }
+      - image:done { scene_id, image_url }
+      - tts:started { scene_id }
+      - tts:done { scene_id, audio_url, duration_sec }
+      - tts:merge_started
+      - tts:merge_done { audio_url, duration_seconds, timeline }
+      - complete { title, scenes, audio_url, duration_seconds, timeline }
+      - error { message | code }
+    """
+
+    async def event_gen():
+        try:
+            logger.info("[SSE+TTS] started")
+            yield _sse("started", {"message": "begin"})
+
+            # Always run imperative steps here so we can stream progress
+            raw_scenes = await asyncio.to_thread(
+                chains.segment_text_into_scenes, text, max_scenes
+            )
+            yield _sse("segmented", {"count": len(raw_scenes)})
+
+            try:
+                global_summary = chains.summarize_global_context(text)
+            except Exception:
+                global_summary = ""
+            yield _sse("summarized", {"has_summary": bool(global_summary)})
+
+            # Build prompts (emit each)
+            scenes: List[Scene] = []
+            for sdict in raw_scenes:
+                prompt = chains.generate_visual_prompt(
+                    sdict["scene_summary"],
+                    global_summary=global_summary,
+                    source_sentences=sdict.get("source_sentences"),
+                )
+                scn = Scene(
+                    scene_id=sdict["scene_id"],
+                    scene_summary=sdict["scene_summary"],
+                    prompt=prompt,
+                    source_sentence_indices=sdict.get("source_sentence_indices"),
+                    source_sentences=sdict.get("source_sentences"),
+                )
+                scenes.append(scn)
+                logger.info("[SSE+TTS] prompt scene=%s", scn.scene_id)
+                yield _sse("prompt", {"scene_id": scn.scene_id, "prompt": scn.prompt})
+
+            # Generate images sequentially for ordered progress
+            for scn in scenes:
+                logger.info("[SSE+TTS] image start scene=%s", scn.scene_id)
+                yield _sse("image:started", {"scene_id": scn.scene_id})
+                try:
+                    url = await asyncio.to_thread(generate_image_url, scn.prompt or "")
+                    scn.image_url = _abs_url(request, url)
+                    logger.info("[SSE+TTS] image done scene=%s", scn.scene_id)
+                    yield _sse(
+                        "image:done",
+                        {"scene_id": scn.scene_id, "image_url": scn.image_url},
+                    )
+                except BillingCreditError:
+                    logger.warning("[SSE+TTS] credit error scene=%s", scn.scene_id)
+                    yield _sse(
+                        "error",
+                        {
+                            "scene_id": scn.scene_id,
+                            "code": 402,
+                            "message": "Replicate credit insufficient",
+                        },
+                    )
+                    return
+                except Exception as e:
+                    logger.exception("[SSE+TTS] image error scene=%s", scn.scene_id)
+                    yield _sse(
+                        "error",
+                        {
+                            "scene_id": scn.scene_id,
+                            "code": 502,
+                            "message": f"Image generation failed: {e}",
+                        },
+                    )
+                    return
+
+            # TTS per scene
+            files: List[tuple[int, str]] = []
+            for scn in scenes:
+                logger.info("[SSE+TTS] tts start scene=%s", scn.scene_id)
+                yield _sse("tts:started", {"scene_id": scn.scene_id})
+                text_for_tts = (
+                    "\n".join(scn.source_sentences)
+                    if scn.source_sentences
+                    else scn.scene_summary
+                )
+                url, dur = await tts_scene_summary(scn.scene_id, text_for_tts)
+                if not url:
+                    yield _sse(
+                        "error",
+                        {
+                            "scene_id": scn.scene_id,
+                            "code": 502,
+                            "message": "TTS synthesis failed",
+                        },
+                    )
+                    return
+                abs_url = _abs_url(request, url)
+                yield _sse(
+                    "tts:done",
+                    {
+                        "scene_id": scn.scene_id,
+                        "audio_url": abs_url,
+                        "duration_sec": dur or 0.0,
+                    },
+                )
+                # Resolve on-disk path for merge
+                fname = url.rsplit("/", 1)[-1]
+                path = os.path.join(s.tts_output_dir, fname)
+                if os.path.exists(path):
+                    files.append((scn.scene_id, path))
+
+            if not files:
+                yield _sse(
+                    "error", {"message": "No TTS clips generated to merge", "code": 502}
+                )
+                return
+
+            # Merge clips
+            logger.info("[SSE+TTS] merge start (%s clips)", len(files))
+            yield _sse("tts:merge_started", {"count": len(files)})
+            try:
+                out_path, total, timeline = await asyncio.to_thread(
+                    concat_audios_with_timeline, files
+                )
+            except Exception as e:
+                logger.exception("[SSE+TTS] merge error")
+                yield _sse(
+                    "error", {"message": f"Audio merge failed: {e}", "code": 502}
+                )
+                return
+
+            audio_url = _abs_url(request, f"/static/audio/{os.path.basename(out_path)}")
+            yield _sse(
+                "tts:merge_done",
+                {
+                    "audio_url": audio_url,
+                    "duration_seconds": total,
+                    "timeline": timeline,
+                },
+            )
+
+            # Prepare final payload
+            payload = [
+                {
+                    "scene_id": scn.scene_id,
+                    "image_url": scn.image_url,
+                    "prompt": scn.prompt,
+                }
+                for scn in scenes
+            ]
+            try:
+                title = chains.generate_title(text)
+            except Exception:
+                title = None
+            for it in payload:
+                if it.get("image_url"):
+                    it["image_url"] = _abs_url(request, it["image_url"])  # type: ignore
+            yield _sse(
+                "complete",
+                {
+                    "title": title,
+                    "scenes": payload,
+                    "audio_url": audio_url,
+                    "duration_seconds": total,
+                    "timeline": timeline,
+                },
+            )
+        except Exception as e:
+            logger.exception("[SSE+TTS] stream error")
             yield _sse("error", {"message": str(e)})
 
     headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
